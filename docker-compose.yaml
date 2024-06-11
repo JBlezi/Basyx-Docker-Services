@@ -1,0 +1,127 @@
+version: "3.7"
+
+services:
+  
+  mongodb:
+    image: mongo:5.0.10
+    volumes:
+    - mongodb-data-version-5.0.10:/data/db
+    container_name: mongodb-aasreg-smreg-v3
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    ports:
+      - 27017:27017
+    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
+    #platform: linux/amd64
+    #volumes:
+    #  - ./registry-config/context.properties:/usr/share/config/context.properties
+    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
+    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
+    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
+    #   - ./users:/app/users
+    #ports:
+    #  - 4999:4999
+  aas-registry-service:
+    image: eclipsebasyx/aas-registry-log-mongodb:latest
+    container_name:  aas-registry-v3
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
+    ports:
+      - 8050:8080
+    depends_on:
+      - mongodb
+    restart: always
+    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
+    #platform: linux/amd64
+    #volumes:
+    #  - ./registry-config/context.properties:/usr/share/config/context.properties
+    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
+    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
+    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
+    #   - ./users:/app/users
+    #ports:
+    #  - 4999:4999
+  submodel-registry-service:
+    image: eclipsebasyx/submodel-registry-log-mongodb:2.0.0-SNAPSHOT
+    container_name:  submodel-registry-v3
+    # pull_policy: never
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
+    ports:
+      - 8051:8080
+    depends_on:
+      - mongodb
+    restart: always
+    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
+    #platform: linux/amd64
+    #volumes:
+    #  - ./registry-config/context.properties:/usr/share/config/context.properties
+    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
+    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
+    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
+    #   - ./users:/app/users
+    #ports:
+    #  - 4999:4999
+  aas-environment-service:
+    image: eclipsebasyx/aas-environment:2.0.0-SNAPSHOT
+    volumes:
+    - ./application.properties:/application/application.properties
+    container_name:  aas-environment-v3
+    # pull_policy: never
+    ports:
+      - 8082:8081
+    depends_on:
+      - mongodb
+    restart: always
+    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
+    #platform: linux/amd64
+    #volumes:
+    #  - ./registry-config/context.properties:/usr/share/config/context.properties
+    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
+    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
+    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
+    #   - ./users:/app/users
+    #ports:
+    #  - 4999:4999
+  mongo-express:
+    image: mongo-express:1.0.0-alpha.4
+    container_name: mongo-express-v3
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
+    ports:
+      - "0.0.0.0:8081:8081"
+    depends_on:
+      - mongodb
+
+  aas-discovery-service:
+    image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
+    container_name: aas-discovery-service
+    volumes:
+      - ./application.properties:/application/application.properties
+    ports:
+      - 8083:8081
+    depends_on:
+      - mongodb
+      - aas-environment-service
+      - aas-registry-service
+      - submodel-registry-service
+    restart: always
+
+  aas-lookup-service:
+    image: aas-lookup-service
+    container_name: aas-lookup-service
+    pull_policy: never
+    ports:
+      - 8084:80
+    depends_on:
+      - aas-discovery-service
+      - aas-environment-service
+      - aas-registry-service
+
+volumes:
+   mongodb-data-version-5.0.10:
+      driver: local

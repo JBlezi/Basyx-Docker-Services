@@ -1,0 +1,14 @@
+# Dockerfile.discovery
+
+FROM eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
+
+# Add the wait-for.sh script
+USER root
+COPY wait-for.sh /usr/local/bin/wait-for.sh
+RUN chmod +x /usr/local/bin/wait-for.sh
+
+# Revert back to the original user
+USER nobody
+
+# Use wait-for.sh in entrypoint
+ENTRYPOINT ["/usr/local/bin/wait-for.sh", "aas-environment-v3", "8081", "--", "java", "-jar", "basyxExecutable.jar"]
