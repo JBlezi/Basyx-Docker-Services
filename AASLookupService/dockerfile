@@ -20,10 +20,4 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Add the wait-for.sh script
-# COPY wait-for.sh /usr/local/bin/wait-for.sh
-# RUN chmod +x /usr/local/bin/wait-for.sh
-
-# Use wait-for.sh in entrypoint
-# ENTRYPOINT ["/usr/local/bin/wait-for.sh", "aas-environment-log-mongodb", "8081", "--", "dotnet", "AASLookupService.dll"]
 ENTRYPOINT ["dotnet", "AASLookupService.dll"]
