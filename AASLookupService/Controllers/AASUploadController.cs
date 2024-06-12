@@ -105,8 +105,6 @@ public class AASUploadController : ControllerBase
             getShellsResponse.EnsureSuccessStatusCode();
 
             var shellsContent = await getShellsResponse.Content.ReadAsStringAsync();
-            Console.WriteLine($"Shells JSON Response: {shellsContent}");
-
             // Deserialize using the ShellsResponse wrapper class
             var shellsResponse = JsonSerializer.Deserialize<ShellsResponse>(shellsContent);
             var shellsResult = shellsResponse.Result;
@@ -156,17 +154,13 @@ public class AASUploadController : ControllerBase
 
             // Log the registry entry before sending
             var registryEntryJson = JsonSerializer.Serialize(registryEntry);
-            Console.WriteLine($"Registry Entry JSON: {registryEntryJson}");
-            
             // Step 4: Upload the registry entry
             var registryClient = _httpClientFactory.CreateClient();
             var registryContent = new StringContent(JsonSerializer.Serialize(registryEntry), Encoding.UTF8, "application/json");
-            var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors/{Base64UrlEncode(aasId)}", registryContent);
+            var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors", registryContent);
             
             var registryResponseContent = await registryResponse.Content.ReadAsStringAsync();
             var registryResponseHeaders = registryResponse.Headers.ToString();
-            Console.WriteLine($"Registry Response: {registryResponse.StatusCode}, {registryResponseContent}");
-            Console.WriteLine($"Registry Response Headers: {registryResponseHeaders}");
 
             if (!registryResponse.IsSuccessStatusCode)
             {
@@ -178,17 +172,36 @@ public class AASUploadController : ControllerBase
             {
                 var discoveryClient = _httpClientFactory.CreateClient();
 
-                var discoveryEntry = new
-                {
-                    SpecificAssetIds = specificAssetIds
-                };
+                // Modify discoveryEntry to match the expected JSON structure
+                var discoveryEntry = specificAssetIds;
 
                 var discoveryContent = new StringContent(JsonSerializer.Serialize(discoveryEntry), Encoding.UTF8, "application/json");
-                var discoveryResponse = await discoveryClient.PostAsync($"http://aas-discovery-service:8081/lookup/shells/{Base64UrlEncode(aasId)}", discoveryContent);
-                discoveryResponse.EnsureSuccessStatusCode();
-                
+                var discoveryEntryJson = JsonSerializer.Serialize(discoveryEntry);
+                Console.WriteLine($"Discovery Content JSON: {discoveryEntryJson}"); // Log the discovery content JSON
+
+                // Create the request with the necessary headers
+                var request = new HttpRequestMessage(HttpMethod.Post, $"http://aas-discovery-service:8081/lookup/shells/{Base64UrlEncode(aasId)}")
+                {
+                    Content = discoveryContent
+                };
+                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                discoveryContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+
+                var discoveryResponse = await discoveryClient.SendAsync(request);
+
+                var discoveryResponseContent = await discoveryResponse.Content.ReadAsStringAsync();
+                var discoveryResponseHeaders = discoveryResponse.Headers.ToString();
+                Console.WriteLine($"Discovery Response: {discoveryResponse.StatusCode}, {discoveryResponseContent}"); // Log the discovery response
+                Console.WriteLine($"Discovery Response Headers: {discoveryResponseHeaders}");
+
+                if (!discoveryResponse.IsSuccessStatusCode)
+                {
+                    return StatusCode((int)discoveryResponse.StatusCode, $"Failed to link in Discovery: {discoveryResponseContent}");
+                }
+
                 return Ok("AASX uploaded, registered and linked in Discovery.");
             }
+
 
             // Return the registry entry for now
             return Ok("AASX uploaded and registered.");
@@ -225,9 +238,6 @@ public class AASUploadController : ControllerBase
     {
         [JsonPropertyName("revision")]
         public string Revision { get; set; }
-    
-        [JsonPropertyName("version")]
-        public string Version { get; set; }
     }
 
     public class AssetInformation
@@ -267,30 +277,53 @@ public class AASUploadController : ControllerBase
 
     public class RegistryEntry
     {
+        [JsonPropertyName("idShort")]
         public string IdShort { get; set; }
+    
+        [JsonPropertyName("id")]
         public string Id { get; set; }
+    
+        [JsonPropertyName("assetKind")]
         public string AssetKind { get; set; }
+    
+        [JsonPropertyName("administration")]
         public Administration Administration { get; set; }
+    
+        [JsonPropertyName("endpoints")]
         public List<Endpoint> Endpoints { get; set; }
+    
+        [JsonPropertyName("description")]
         public List<Description> Description { get; set; }
     }
 
+
     public class Endpoint
     {
+        [JsonPropertyName("protocolInformation")]
         public ProtocolInformation ProtocolInformation { get; set; }
+    
+        [JsonPropertyName("interface")]
         public string Interface { get; set; }
     }
 
     public class ProtocolInformation
     {
+        [JsonPropertyName("href")]
         public string Href { get; set; }
+    
+        [JsonPropertyName("endpointProtocol")]
         public string EndpointProtocol { get; set; }
+    
+        [JsonPropertyName("subprotocol")]
         public string Subprotocol { get; set; }
     }
 
     public class Description
     {
+        [JsonPropertyName("language")]
         public string Language { get; set; }
+    
+        [JsonPropertyName("text")]
         public string Text { get; set; }
     }
 }
