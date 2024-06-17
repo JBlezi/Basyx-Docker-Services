@@ -117,10 +117,14 @@ services:
     pull_policy: never
     ports:
       - 8084:80
+    volumes:
+      - /Users/juliusblezinger/Documents/Verwaltungsschalen:/app/Verwaltungsschalen
     depends_on:
       - aas-discovery-service
       - aas-environment-service
       - aas-registry-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
 
 volumes:
    mongodb-data-version-5.0.10:

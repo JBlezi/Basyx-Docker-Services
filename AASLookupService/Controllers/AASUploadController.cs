@@ -24,6 +24,51 @@ public class AASUploadController : ControllerBase
     [HttpPost("uploadAASX")]
     public async Task<IActionResult> UploadAASX(IFormFile aasxFile, bool register = true, bool discover = true)
     {
+        return await ProcessAASXFile(aasxFile, register, discover);
+    }
+
+    [HttpPost("uploadAASXDirectory")]
+    public async Task<IActionResult> UploadAASXDirectory(string directoryPath, bool register = true, bool discover = true)
+    {
+        // Adjust directory path to the container's mounted path
+        string containerDirectoryPath = Path.Combine("/app/Verwaltungsschalen", Path.GetFileName(directoryPath));
+
+        // Log the received directoryPath
+        Console.WriteLine($"Received directoryPath: {directoryPath}");
+        Console.WriteLine($"Container directoryPath: {containerDirectoryPath}");
+
+        // Check if the directory exists
+        if (string.IsNullOrEmpty(containerDirectoryPath) || !Directory.Exists(containerDirectoryPath))
+        {
+            Console.WriteLine($"Invalid directory path: {containerDirectoryPath}");
+            return BadRequest("Valid directory path is required.");
+        }
+
+        var aasxFiles = Directory.GetFiles(containerDirectoryPath, "*.aasx");
+        if (aasxFiles.Length == 0)
+        {
+            Console.WriteLine($"No AASX files found in the specified directory: {containerDirectoryPath}");
+            return BadRequest("No AASX files found in the specified directory.");
+        }
+
+        var results = new List<string>();
+
+        foreach (var filePath in aasxFiles)
+        {
+            var fileName = Path.GetFileName(filePath);
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+            {
+                var formFile = new FormFile(stream, 0, stream.Length, fileName, fileName);
+                var result = await ProcessAASXFile(formFile, register, discover);
+                results.Add(result.ToString());
+            }
+        }
+
+        return Ok(results);
+    }
+
+    private async Task<IActionResult> ProcessAASXFile(IFormFile aasxFile, bool register, bool discover)
+    {
         if (aasxFile == null || aasxFile.Length == 0)
         {
             return BadRequest("AASX file is required.");
@@ -201,7 +246,6 @@ public class AASUploadController : ControllerBase
 
                 return Ok("AASX uploaded, registered and linked in Discovery.");
             }
-
 
             // Return the registry entry for now
             return Ok("AASX uploaded and registered.");
