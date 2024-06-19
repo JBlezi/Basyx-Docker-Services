@@ -1,158 +1,120 @@
 using System;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
-using System.Linq;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
-[Route("AASUploadService")]
-public class AASUploadController : ControllerBase
+[Route("AASPostService")]
+public class AASPostController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
 
-    public AASUploadController(IHttpClientFactory httpClientFactory)
+    public AASPostController(IHttpClientFactory httpClientFactory)
     {
         _httpClientFactory = httpClientFactory;
     }
 
-    [HttpPost("uploadAASX")]
-    public async Task<IActionResult> UploadAASX(IFormFile aasxFile, bool register = true, bool discover = true)
+    [HttpPost("uploadJSON")]
+    public async Task<IActionResult> UploadJSON(IFormFile jsonFile, bool register = true, bool discover = true)
     {
-        return await ProcessAASXFile(aasxFile, register, discover);
-    }
-
-    [HttpPost("uploadAASXDirectory")]
-    public async Task<IActionResult> UploadAASXDirectory(string directoryPath, bool register = true, bool discover = true)
-    {
-        // Adjust directory path to the container's mounted path
-        string containerDirectoryPath = Path.Combine("/app/Verwaltungsschalen", directoryPath);
-
-        // Log the received directoryPath
-        Console.WriteLine($"Received directoryPath: {directoryPath}");
-        Console.WriteLine($"Container directoryPath: {containerDirectoryPath}");
-
-        // Check if the directory exists
-        if (string.IsNullOrEmpty(containerDirectoryPath) || !Directory.Exists(containerDirectoryPath))
+        if (jsonFile == null || jsonFile.Length == 0)
         {
-            Console.WriteLine($"Invalid directory path: {containerDirectoryPath}");
-            return BadRequest("Valid directory path is required.");
+            return BadRequest("JSON file is required.");
         }
 
-        var aasxFiles = Directory.GetFiles(containerDirectoryPath, "*.aasx");
-        if (aasxFiles.Length == 0)
+        using (var stream = jsonFile.OpenReadStream())
         {
-            Console.WriteLine($"No AASX files found in the specified directory: {containerDirectoryPath}");
-            return BadRequest("No AASX files found in the specified directory.");
-        }
-
-        var results = new List<string>();
-
-        foreach (var filePath in aasxFiles)
-        {
-            var fileName = Path.GetFileName(filePath);
-            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+            using (var reader = new StreamReader(stream))
             {
-                var formFile = new FormFile(stream, 0, stream.Length, fileName, fileName);
-                var result = await ProcessAASXFile(formFile, register, discover);
-                results.Add(result.ToString());
+                var jsonContent = await reader.ReadToEndAsync();
+                return await ProcessJSONContent(jsonContent, register, discover);
             }
         }
-
-        return Ok(results);
     }
 
-    private async Task<IActionResult> ProcessAASXFile(IFormFile aasxFile, bool register, bool discover)
+    private async Task<IActionResult> ProcessJSONContent(string jsonContent, bool register, bool discover)
     {
-        if (aasxFile == null || aasxFile.Length == 0)
-        {
-            return BadRequest("AASX file is required.");
-        }
-
-        if (discover && !register)
-        {
-            return BadRequest("Discovery can only be performed if registration is also enabled.");
-        }
-        
-        // Log file details
-        Console.WriteLine($"File Name: {aasxFile.FileName}");
-        Console.WriteLine($"File Length: {aasxFile.Length}");
-
+        JsonDocument jsonDocument;
         try
         {
-            using (var stream = aasxFile.OpenReadStream())
-            {
-                byte[] buffer = new byte[1024];
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                string previewContent = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                Console.WriteLine($"File Content Preview: {previewContent}");
-            }
+            jsonDocument = JsonDocument.Parse(jsonContent);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            Console.WriteLine($"Error reading file: {ex.Message}");
-            return StatusCode(500, $"Error reading file: {ex.Message}");
+            return BadRequest($"Invalid JSON file: {ex.Message}");
         }
 
-        // Step 1: Upload the AASX file to the AAS repo
+        var root = jsonDocument.RootElement;
+
+        if (!root.TryGetProperty("assetAdministrationShells", out var assetAdministrationShells) ||
+            !root.TryGetProperty("submodels", out var submodels) ||
+            !root.TryGetProperty("conceptDescriptions", out var conceptDescriptions))
+        {
+            return BadRequest("Invalid JSON structure.");
+        }
+
+        // Log the JSON parts
+        Console.WriteLine($"Asset Administration Shells: {assetAdministrationShells}");
+
         var repoClient = _httpClientFactory.CreateClient();
-        try
+
+        // Step 1: Post Asset Administration Shells
+        foreach (var shell in assetAdministrationShells.EnumerateArray())
         {
-            using (var content = new MultipartFormDataContent())
+            var shellContent = new StringContent(shell.GetRawText(), Encoding.UTF8, "application/json");
+            var shellsResponse = await repoClient.PostAsync("http://aas-environment-v3:8081/shells", shellContent);
+
+            if (!shellsResponse.IsSuccessStatusCode)
             {
-                var fileStreamContent = new StreamContent(aasxFile.OpenReadStream());
-                fileStreamContent.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data")
-                {
-                    Name = "file",
-                    FileName = aasxFile.FileName
-                };
-                fileStreamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-                content.Add(fileStreamContent);
+                return StatusCode((int)shellsResponse.StatusCode, $"Failed to post Asset Administration Shell: {await shellsResponse.Content.ReadAsStringAsync()}");
+            }
+        }
 
-                var response = await repoClient.PostAsync("http://aas-environment-v3:8081/upload", content);
+        // Step 2: Post Submodels
+        int submodelIndex = 1;
+        foreach (var submodel in submodels.EnumerateArray())
+        {
+            var submodelContent = new StringContent(submodel.GetRawText(), Encoding.UTF8, "application/json");
 
-                if (!response.IsSuccessStatusCode)
+            Console.WriteLine($"Submodel {submodelIndex}: {submodelContent}");
+
+            var submodelsResponse = await repoClient.PostAsync("http://aas-environment-v3:8081/submodels", submodelContent);
+
+            if (!submodelsResponse.IsSuccessStatusCode)
+            {
+                if (submodelsResponse.StatusCode == System.Net.HttpStatusCode.Conflict)
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-                    var responseHeaders = response.Headers.ToString();
-                    Console.WriteLine($"Upload failed: {response.StatusCode}, {responseContent}");
-                    Console.WriteLine($"Response Headers: {responseHeaders}");
-                    if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
-                    {
-                        return Conflict("AASX file already exists in the repository.");
-                    }
-                    else
-                    {
-                        return StatusCode((int)response.StatusCode, $"Failed to upload AASX file: {responseContent}");
-                    }
+                    Console.WriteLine($"Submodel {submodelIndex} already exists.");
                 }
                 else
                 {
-                    Console.WriteLine("Upload succeeded.");
+                    return StatusCode((int)submodelsResponse.StatusCode, $"Failed to post Submodel {submodelIndex}: {await submodelsResponse.Content.ReadAsStringAsync()}");
                 }
             }
+            else
+            {
+                Console.WriteLine($"Submodel {submodelIndex} successfully posted.");
+            }
+
+            submodelIndex++;
         }
-        catch (HttpRequestException ex)
-        {
-            Console.WriteLine($"An error occurred while uploading the AASX file: {ex.Message}");
-            return StatusCode(500, $"An error occurred while uploading the AASX file: {ex.Message}");
-        }
-        
+
         if (register)
         {
-            // Step 2: Retrieve the necessary information from the AAS for making the AAS registry entry
+            // Retrieve the necessary information from the AAS for making the AAS registry entry
             var getShellsResponse = await repoClient.GetAsync("http://aas-environment-v3:8081/shells");
             getShellsResponse.EnsureSuccessStatusCode();
 
             var shellsContent = await getShellsResponse.Content.ReadAsStringAsync();
-            // Deserialize using the ShellsResponse wrapper class
-            var shellsResponse = JsonSerializer.Deserialize<ShellsResponse>(shellsContent);
-            var shellsResult = shellsResponse.Result;
+            var shellsResponseObject = JsonSerializer.Deserialize<ShellsResponse>(shellsContent);
+            var shellsResult = shellsResponseObject.Result;
 
             var newestShell = shellsResult.LastOrDefault();
             if (newestShell == null)
@@ -160,7 +122,7 @@ public class AASUploadController : ControllerBase
                 return NotFound("No shell descriptors found.");
             }
 
-            // Step 3: Extract information from the shell descriptor
+            // Extract information from the shell descriptor
             var aasId = newestShell.Id;
             var administrationRevision = newestShell.Administration?.Revision ?? "0";
             var assetKind = newestShell.AssetInformation.AssetKind;
@@ -180,7 +142,7 @@ public class AASUploadController : ControllerBase
                     {
                         ProtocolInformation = new ProtocolInformation
                         {
-                            Href = $"http://localhost:8082/shells/{Base64UrlEncode(aasId)}",
+                            Href = $"http://aas-environment-v3:8081/shells/{Base64UrlEncode(aasId)}",
                             EndpointProtocol = "HTTP",
                             Subprotocol = "AAS"
                         },
@@ -255,18 +217,17 @@ public class AASUploadController : ControllerBase
                     return StatusCode((int)discoveryResponse.StatusCode, $"Failed to link in Discovery: {discoveryResponseContent}");
                 }
 
-                return Ok("AASX uploaded, registered and linked in Discovery.");
+                return Ok("JSON uploaded, registered and linked in Discovery.");
             }
 
             // Return the registry entry for now
-            return Ok("AASX uploaded and registered.");
+            return Ok("JSON uploaded and registered.");
         }
         else
         {
-            return Ok("AASX uploaded.");
+            return Ok("JSON uploaded.");
         }
     }
-
 
     private string Base64UrlEncode(string input)
     {
@@ -351,7 +312,6 @@ public class AASUploadController : ControllerBase
         [JsonPropertyName("description")]
         public List<Description> Description { get; set; }
     }
-
 
     public class Endpoint
     {
