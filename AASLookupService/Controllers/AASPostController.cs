@@ -62,6 +62,8 @@ public class AASPostController : ControllerBase
 
         // Log the JSON parts
         Console.WriteLine($"Asset Administration Shells: {assetAdministrationShells}");
+        Console.WriteLine($"Submodels: {submodels}");
+        Console.WriteLine($"Concept Descriptions: {conceptDescriptions}");
 
         var repoClient = _httpClientFactory.CreateClient();
 
@@ -73,7 +75,14 @@ public class AASPostController : ControllerBase
 
             if (!shellsResponse.IsSuccessStatusCode)
             {
-                return StatusCode((int)shellsResponse.StatusCode, $"Failed to post Asset Administration Shell: {await shellsResponse.Content.ReadAsStringAsync()}");
+                if (shellsResponse.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    Console.WriteLine($"Asset Administration Shell already exists: {await shellsResponse.Content.ReadAsStringAsync()}");
+                }
+                else
+                {
+                    return StatusCode((int)shellsResponse.StatusCode, $"Failed to post Asset Administration Shell: {await shellsResponse.Content.ReadAsStringAsync()}");
+                }
             }
         }
 
@@ -108,120 +117,110 @@ public class AASPostController : ControllerBase
 
         if (register)
         {
-            // Retrieve the necessary information from the AAS for making the AAS registry entry
-            var getShellsResponse = await repoClient.GetAsync("http://aas-environment-v3:8081/shells");
-            getShellsResponse.EnsureSuccessStatusCode();
-
-            var shellsContent = await getShellsResponse.Content.ReadAsStringAsync();
-            var shellsResponseObject = JsonSerializer.Deserialize<ShellsResponse>(shellsContent);
-            var shellsResult = shellsResponseObject.Result;
-
-            var newestShell = shellsResult.LastOrDefault();
-            if (newestShell == null)
+            foreach (var shell in assetAdministrationShells.EnumerateArray())
             {
-                return NotFound("No shell descriptors found.");
-            }
-
-            // Extract information from the shell descriptor
-            var aasId = newestShell.Id;
-            var administrationRevision = newestShell.Administration?.Revision ?? "0";
-            var assetKind = newestShell.AssetInformation.AssetKind;
-            var idShort = newestShell.IdShort;
-            var specificAssetIds = newestShell.AssetInformation.SpecificAssetIds;
-
-            // Construct registry entry
-            var registryEntry = new RegistryEntry
-            {
-                IdShort = idShort,
-                Id = aasId,
-                AssetKind = assetKind,
-                Administration = new Administration { Revision = administrationRevision },
-                Endpoints = new List<Endpoint>
-                {
-                    new Endpoint
+                var aasId = shell.GetProperty("id").GetString();
+                var administration = shell.GetProperty("administration").GetProperty("revision").GetString();
+                var assetKind = shell.GetProperty("assetInformation").GetProperty("assetKind").GetString();
+                var idShort = shell.GetProperty("idShort").GetString();
+                var specificAssetIds = shell.GetProperty("assetInformation").GetProperty("specificAssetIds").EnumerateArray()
+                    .Select(id => new SpecificAssetId
                     {
-                        ProtocolInformation = new ProtocolInformation
+                        Name = id.GetProperty("name").GetString(),
+                        Value = id.GetProperty("value").GetString()
+                    }).ToList();
+
+                // Construct registry entry
+                var registryEntry = new RegistryEntry
+                {
+                    IdShort = idShort,
+                    Id = aasId,
+                    AssetKind = assetKind,
+                    Administration = new Administration { Revision = administration },
+                    Endpoints = new List<Endpoint>
+                    {
+                        new Endpoint
                         {
-                            Href = $"http://aas-environment-v3:8081/shells/{Base64UrlEncode(aasId)}",
-                            EndpointProtocol = "HTTP",
-                            Subprotocol = "AAS"
-                        },
-                        Interface = "https://admin-shell.io/aas/API/3/0/AasServiceSpecification/SSP-003"
-                    }
-                },
-                Description = new List<Description>
-                {
-                    new Description
+                            ProtocolInformation = new ProtocolInformation
+                            {
+                                Href = $"http://aas-environment-v3:8081/shells/{Base64UrlEncode(aasId)}",
+                                EndpointProtocol = "HTTP",
+                                Subprotocol = "AAS"
+                            },
+                            Interface = "https://admin-shell.io/aas/API/3/0/AasServiceSpecification/SSP-003"
+                        }
+                    },
+                    Description = new List<Description>
                     {
-                        Language = "en-US",
-                        Text = "Standardized digital representation of Murrelektroniks. It holds digital models of various aspects (submodels) and describes technical functionality exposed by them."
+                        new Description
+                        {
+                            Language = "en-US",
+                            Text = "Standardized digital representation of Murrelektroniks. It holds digital models of various aspects (submodels) and describes technical functionality exposed by them."
+                        }
+                    }
+                };
+
+                // Log the registry entry before sending
+                var registryEntryJson = JsonSerializer.Serialize(registryEntry);
+                Console.WriteLine($"Registry Entry JSON: {registryEntryJson}");
+
+                // Step 4: Upload the registry entry
+                var registryClient = _httpClientFactory.CreateClient();
+                var registryContent = new StringContent(JsonSerializer.Serialize(registryEntry), Encoding.UTF8, "application/json");
+                try
+                {
+                    var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors", registryContent);
+                    var registryResponseContent = await registryResponse.Content.ReadAsStringAsync();
+                    var registryResponseHeaders = registryResponse.Headers.ToString();
+                    Console.WriteLine($"Registry Response: {registryResponse.StatusCode}, {registryResponseContent}");
+                    Console.WriteLine($"Registry Response Headers: {registryResponseHeaders}");
+
+                    if (!registryResponse.IsSuccessStatusCode)
+                    {
+                        return StatusCode((int)registryResponse.StatusCode, $"Failed to register AAS: {registryResponseContent}");
                     }
                 }
-            };
-
-            // Log the registry entry before sending
-            var registryEntryJson = JsonSerializer.Serialize(registryEntry);
-            Console.WriteLine($"Registry Entry JSON: {registryEntryJson}");
-
-            // Step 4: Upload the registry entry
-            var registryClient = _httpClientFactory.CreateClient();
-            var registryContent = new StringContent(JsonSerializer.Serialize(registryEntry), Encoding.UTF8, "application/json");
-            try
-            {
-                var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors", registryContent);
-                var registryResponseContent = await registryResponse.Content.ReadAsStringAsync();
-                var registryResponseHeaders = registryResponse.Headers.ToString();
-                Console.WriteLine($"Registry Response: {registryResponse.StatusCode}, {registryResponseContent}");
-                Console.WriteLine($"Registry Response Headers: {registryResponseHeaders}");
-
-                if (!registryResponse.IsSuccessStatusCode)
+                catch (HttpRequestException ex)
                 {
-                    return StatusCode((int)registryResponse.StatusCode, $"Failed to register AAS: {registryResponseContent}");
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.WriteLine($"An error occurred while posting to the registry: {ex.Message}");
-                return StatusCode(500, $"An error occurred while posting to the registry: {ex.Message}");
-            }
-
-            // Step 5: If discover is true, construct and upload the discovery entry
-            if (discover)
-            {
-                var discoveryClient = _httpClientFactory.CreateClient();
-
-                // Modify discoveryEntry to match the expected JSON structure
-                var discoveryEntry = specificAssetIds;
-
-                var discoveryContent = new StringContent(JsonSerializer.Serialize(discoveryEntry), Encoding.UTF8, "application/json");
-                var discoveryEntryJson = JsonSerializer.Serialize(discoveryEntry);
-                Console.WriteLine($"Discovery Content JSON: {discoveryEntryJson}"); // Log the discovery content JSON
-
-                // Create the request with the necessary headers
-                var request = new HttpRequestMessage(HttpMethod.Post, $"http://aas-discovery-service:8081/lookup/shells/{Base64UrlEncode(aasId)}")
-                {
-                    Content = discoveryContent
-                };
-                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-                discoveryContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-
-                var discoveryResponse = await discoveryClient.SendAsync(request);
-
-                var discoveryResponseContent = await discoveryResponse.Content.ReadAsStringAsync();
-                var discoveryResponseHeaders = discoveryResponse.Headers.ToString();
-                Console.WriteLine($"Discovery Response: {discoveryResponse.StatusCode}, {discoveryResponseContent}"); // Log the discovery response
-                Console.WriteLine($"Discovery Response Headers: {discoveryResponseHeaders}");
-
-                if (!discoveryResponse.IsSuccessStatusCode)
-                {
-                    return StatusCode((int)discoveryResponse.StatusCode, $"Failed to link in Discovery: {discoveryResponseContent}");
+                    Console.WriteLine($"An error occurred while posting to the registry: {ex.Message}");
+                    return StatusCode(500, $"An error occurred while posting to the registry: {ex.Message}");
                 }
 
-                return Ok("JSON uploaded, registered and linked in Discovery.");
+                // Step 5: If discover is true, construct and upload the discovery entry
+                if (discover)
+                {
+                    var discoveryClient = _httpClientFactory.CreateClient();
+
+                    // Modify discoveryEntry to match the expected JSON structure
+                    var discoveryEntry = specificAssetIds;
+
+                    var discoveryContent = new StringContent(JsonSerializer.Serialize(discoveryEntry), Encoding.UTF8, "application/json");
+                    var discoveryEntryJson = JsonSerializer.Serialize(discoveryEntry);
+                    Console.WriteLine($"Discovery Content JSON: {discoveryEntryJson}"); // Log the discovery content JSON
+
+                    // Create the request with the necessary headers
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"http://aas-discovery-service:8081/lookup/shells/{Base64UrlEncode(aasId)}")
+                    {
+                        Content = discoveryContent
+                    };
+                    request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                    discoveryContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+
+                    var discoveryResponse = await discoveryClient.SendAsync(request);
+
+                    var discoveryResponseContent = await discoveryResponse.Content.ReadAsStringAsync();
+                    var discoveryResponseHeaders = discoveryResponse.Headers.ToString();
+                    Console.WriteLine($"Discovery Response: {discoveryResponse.StatusCode}, {discoveryResponseContent}"); // Log the discovery response
+                    Console.WriteLine($"Discovery Response Headers: {discoveryResponseHeaders}");
+
+                    if (!discoveryResponse.IsSuccessStatusCode)
+                    {
+                        return StatusCode((int)discoveryResponse.StatusCode, $"Failed to link in Discovery: {discoveryResponseContent}");
+                    }
+                }
             }
 
-            // Return the registry entry for now
-            return Ok("JSON uploaded and registered.");
+            return Ok("JSON uploaded, registered and linked in Discovery.");
         }
         else
         {
