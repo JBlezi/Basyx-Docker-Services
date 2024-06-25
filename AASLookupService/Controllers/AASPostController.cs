@@ -71,7 +71,7 @@ public class AASPostController : ControllerBase
         foreach (var shell in assetAdministrationShells.EnumerateArray())
         {
             var shellContent = new StringContent(shell.GetRawText(), Encoding.UTF8, "application/json");
-            var shellsResponse = await repoClient.PostAsync("http://aas-environment-v3:8081/shells", shellContent);
+            var shellsResponse = await repoClient.PostAsync("http://aas-environment-v3:8081/shells", shellContent); 
 
             if (!shellsResponse.IsSuccessStatusCode)
             {
