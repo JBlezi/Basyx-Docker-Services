@@ -62,8 +62,8 @@ public class AASPostController : ControllerBase
 
         // Log the JSON parts
         Console.WriteLine($"Asset Administration Shells: {assetAdministrationShells}");
-        Console.WriteLine($"Submodels: {submodels}");
-        Console.WriteLine($"Concept Descriptions: {conceptDescriptions}");
+        // Console.WriteLine($"Submodels: {submodels}");
+        // Console.WriteLine($"Concept Descriptions: {conceptDescriptions}");
 
         var repoClient = _httpClientFactory.CreateClient();
 
@@ -119,16 +119,46 @@ public class AASPostController : ControllerBase
         {
             foreach (var shell in assetAdministrationShells.EnumerateArray())
             {
-                var aasId = shell.GetProperty("id").GetString();
-                var administration = shell.GetProperty("administration").GetProperty("revision").GetString();
-                var assetKind = shell.GetProperty("assetInformation").GetProperty("assetKind").GetString();
-                var idShort = shell.GetProperty("idShort").GetString();
-                var specificAssetIds = shell.GetProperty("assetInformation").GetProperty("specificAssetIds").EnumerateArray()
-                    .Select(id => new SpecificAssetId
+                string aasId = null;
+                string administrationRevision = null;
+                string assetKind = null;
+                string idShort = null;
+                List<SpecificAssetId> specificAssetIds = null;
+
+                // Check and extract properties safely
+                if (shell.TryGetProperty("id", out var idElement))
+                {
+                    aasId = idElement.GetString();
+                }
+
+                if (shell.TryGetProperty("administration", out var administrationElement) &&
+                    administrationElement.TryGetProperty("revision", out var revisionElement))
+                {
+                    administrationRevision = revisionElement.GetString();
+                }
+
+                if (shell.TryGetProperty("assetInformation", out var assetInfoElement))
+                {
+                    if (assetInfoElement.TryGetProperty("assetKind", out var assetKindElement))
                     {
-                        Name = id.GetProperty("name").GetString(),
-                        Value = id.GetProperty("value").GetString()
-                    }).ToList();
+                        assetKind = assetKindElement.GetString();
+                    }
+
+                    if (assetInfoElement.TryGetProperty("specificAssetIds", out var specificAssetIdsElement))
+                    {
+                        specificAssetIds = specificAssetIdsElement.EnumerateArray()
+                            .Select(id => new SpecificAssetId
+                            {
+                                Name = id.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null,
+                                Value = id.TryGetProperty("value", out var valueElement) ? valueElement.GetString() : null
+                            }).ToList();
+                    }
+                }
+
+                if (shell.TryGetProperty("idShort", out var idShortElement))
+                {
+                    idShort = idShortElement.GetString();
+                }
 
                 // Construct registry entry
                 var registryEntry = new RegistryEntry
@@ -136,7 +166,6 @@ public class AASPostController : ControllerBase
                     IdShort = idShort,
                     Id = aasId,
                     AssetKind = assetKind,
-                    Administration = new Administration { Revision = administration },
                     Endpoints = new List<Endpoint>
                     {
                         new Endpoint
@@ -159,6 +188,12 @@ public class AASPostController : ControllerBase
                         }
                     }
                 };
+
+                // Include administration if available
+                if (administrationRevision != null)
+                {
+                    registryEntry.Administration = new Administration { Revision = administrationRevision };
+                }
 
                 // Log the registry entry before sending
                 var registryEntryJson = JsonSerializer.Serialize(registryEntry);
@@ -219,7 +254,6 @@ public class AASPostController : ControllerBase
                     }
                 }
             }
-
             return Ok("JSON uploaded, registered and linked in Discovery.");
         }
         else
