@@ -7,16 +7,19 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 [ApiController]
 [Route("[controller]")]
 public class AASLookupController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<AASLookupController> _logger;
 
-    public AASLookupController(IHttpClientFactory httpClientFactory)
+    public AASLookupController(IHttpClientFactory httpClientFactory, ILogger<AASLookupController> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _logger = logger;
     }
 
     [HttpGet("lookup")]
@@ -56,7 +59,7 @@ public class AASLookupController : ControllerBase
 
             if (!registryResult.RootElement.TryGetProperty("endpoints", out var endpoints) || endpoints.GetArrayLength() == 0)
             {
-                Console.WriteLine($"No endpoints found for AAS ID: {aasId}");
+                _logger.LogInformation($"No endpoints found for AAS ID: {aasId}");
                 continue;
             }
 
@@ -90,7 +93,7 @@ public class AASLookupController : ControllerBase
 
                         if (submodelData.ValueKind != JsonValueKind.Null)
                         {
-                            Console.WriteLine("Fetched Submodel Data: " + submodelData.GetRawText());
+                            _logger.LogInformation("Fetched Submodel Data: {DataSnippet}", GetSnippet(submodelData.GetRawText()));
                             aasDataWrapper.Submodels.Add(submodelData);
                         }
                     }
@@ -100,13 +103,13 @@ public class AASLookupController : ControllerBase
                 try
                 {
                     var aasDataJson = JsonSerializer.Serialize(aasDataWrapper);
-                    Console.WriteLine("AAS Data Wrapper: " + aasDataJson);
+                    _logger.LogInformation("AAS Data Wrapper: {DataSnippet}", GetSnippet(aasDataJson));
                     var aasDataElement = JsonDocument.Parse(aasDataJson).RootElement;
                     aasDataList.Add(aasDataElement);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error serializing aasDataWrapper: {ex.Message}");
+                    _logger.LogError(ex, $"Error serializing aasDataWrapper: {ex.Message}");
                 }
             }
         }
@@ -125,7 +128,7 @@ public class AASLookupController : ControllerBase
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Failed to fetch AAS data from URL: {ex.Message}");
+            _logger.LogError($"Failed to fetch AAS data from URL: {GetSnippet(ex.Message)}");
             return new JsonElement();
         }
     }
@@ -141,12 +144,12 @@ public class AASLookupController : ControllerBase
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            Console.WriteLine($"Submodel {url} does not exist");
+            _logger.LogInformation($"Submodel {url} does not exist");
             return default;
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine($"Failed to fetch submodel data from URL: {ex.Message}");
+            _logger.LogError($"Failed to fetch submodel data from URL: {GetSnippet(ex.Message)}");
             return default;
         }
     }
@@ -161,6 +164,16 @@ public class AASLookupController : ControllerBase
         var byteArray = Encoding.UTF8.GetBytes(input);
         var base64 = Convert.ToBase64String(byteArray);
         return base64.Replace("+", "-").Replace("/", "_").Replace("=", "");
+    }
+
+    private string GetSnippet(string content, int length = 300)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return string.Empty;
+        }
+
+        return content.Length <= length ? content : content.Substring(0, length) + "...";
     }
 }
 

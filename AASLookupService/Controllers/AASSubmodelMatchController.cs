@@ -30,31 +30,27 @@ public class AASSubmodelMatchController : ControllerBase
         }
 
         var articleAasId = await GetAasIdAsync(request.ArticleAssetId);
+        _logger.LogInformation("Fetched Article AAS ID: {ArticleAasId}", articleAasId);
         var matchingAssetIds = new List<string>();
 
         foreach (var assetId in request.AssetIds)
         {
             var assetAasData = await GetAasDataAsync(assetId, includeSubmodels: true);
+            _logger.LogInformation("Fetched AAS Data for Asset ID: {AssetId}, Data: {AssetAasData}", assetId, assetAasData);
 
             if (assetAasData != null)
             {
                 foreach (var submodel in assetAasData.Submodels)
                 {
-                    if (request.SubmodelIds.Contains(submodel.GetProperty("id").GetString()))
+                    if (submodel.ValueKind == JsonValueKind.Object && submodel.TryGetProperty("id", out var submodelId))
                     {
-                        var submodelElements = submodel.GetProperty("submodelElements").EnumerateArray();
-                        foreach (var element in submodelElements)
+                        _logger.LogInformation("Checking Submodel ID: {SubmodelId} for Asset ID: {AssetId}", submodelId.GetString(), assetId);
+                        if (request.SubmodelIds.Contains(submodelId.GetString()))
                         {
-                            if (element.TryGetProperty("value", out var value) && value.TryGetProperty("keys", out var keys))
                             {
-                                foreach (var key in keys.EnumerateArray())
-                                {
-                                    if (key.GetProperty("value").GetString() == articleAasId)
-                                    {
-                                        matchingAssetIds.Add(assetId);
-                                        break;
-                                    }
-                                }
+                                _logger.LogInformation("Match found for Asset ID: {AssetId} with Article AAS ID: {ArticleAasId}", assetId, articleAasId);
+                                matchingAssetIds.Add(assetId);
+                                break;
                             }
                         }
                     }
@@ -62,80 +58,79 @@ public class AASSubmodelMatchController : ControllerBase
             }
         }
 
-        return Ok(matchingAssetIds);
+        // Log the matchingAssetIds
+        _logger.LogInformation("Response of AASSubmodelMatchController: {MatchingAssetIds}", JsonSerializer.Serialize(matchingAssetIds));
+        
+        return Ok(new { Message = "Matching Asset IDs", matchingAssetIds });
     }
 
     private async Task<string> GetAasIdAsync(string assetId)
     {
         var client = _httpClientFactory.CreateClient();
         var response = await client.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={assetId}");
-        
-        _logger.LogInformation("AAS Api Call Response Status Code: {StatusCode}", response.StatusCode);
-        
+
         var content = await response.Content.ReadAsStringAsync();
-        _logger.LogInformation("AAS Api Call Content ReadAsString: {Content}", content);
+        Console.WriteLine("Response Content: " + content); // Debug log to print the entire response
 
         try
         {
             var jsonArray = JsonDocument.Parse(content).RootElement.EnumerateArray();
-            _logger.LogInformation("AAS enumerated Array: {Array}", jsonArray);
 
-            foreach (var item in jsonArray)
+            // Assuming the first element in the array contains the AAS data
+            var aasDataWrapper = jsonArray.FirstOrDefault();
+            if (aasDataWrapper.ValueKind == JsonValueKind.Object && aasDataWrapper.TryGetProperty("assetAdministrationShells", out var assetAdminShells))
             {
-                if (item.TryGetProperty("assetAdministrationShells", out var shells))
+                var aasData = assetAdminShells.EnumerateArray().FirstOrDefault();
+                if (aasData.ValueKind == JsonValueKind.Object && aasData.TryGetProperty("id", out var idProperty))
                 {
-                    foreach (var shell in shells.EnumerateArray())
-                    {
-                        if (shell.TryGetProperty("id", out var idProperty))
-                        {
-                            return idProperty.GetString();
-                        }
-                    }
+                    return idProperty.GetString();
+                }
+                else
+                {
+                    throw new Exception("AAS id not found in the assetAdministrationShells.");
                 }
             }
-
-            throw new Exception("AAS id not found in the response.");
+            else
+            {
+                throw new Exception("AAS assetAdministrationShells not found in the response.");
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error parsing AAS response");
-            throw;
+            throw new Exception("Error parsing AAS response", ex);
         }
     }
-
 
     private async Task<JsonObjectWrapper> GetAasDataAsync(string assetId, bool includeSubmodels)
     {
         var client = _httpClientFactory.CreateClient();
         var response = await client.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={assetId}&submodels={includeSubmodels}");
-        
-        _logger.LogInformation("AAS Api Call Response Status Code: {StatusCode}", response.StatusCode);
-        
+        response.EnsureSuccessStatusCode();
+
         var content = await response.Content.ReadAsStringAsync();
-        _logger.LogInformation("AAS Api Call Content ReadAsString: {Content}", content);
-
-        try
+        var jsonArray = JsonDocument.Parse(content).RootElement.EnumerateArray();
+        
+        // Assuming the first element in the array contains the AAS data
+        var aasData = jsonArray.FirstOrDefault();
+        
+        if (aasData.ValueKind == JsonValueKind.Object)
         {
-            var jsonArray = JsonDocument.Parse(content).RootElement.EnumerateArray();
-            _logger.LogInformation("AAS enumerated Array: {Array}", jsonArray);
-
-            // Assuming the first element in the array contains the AAS data
-            var aasData = jsonArray.FirstOrDefault();
-            
-            if (aasData.ValueKind == JsonValueKind.Object)
-            {
-                return JsonSerializer.Deserialize<JsonObjectWrapper>(aasData.GetRawText());
-            }
-            else
-            {
-                throw new Exception("AAS data not found in the response.");
-            }
+            return JsonSerializer.Deserialize<JsonObjectWrapper>(aasData.GetRawText());
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Error parsing AAS response");
-            throw;
+            throw new Exception("AAS data not found in the response.");
         }
+    }
+
+    private string GetSnippet(string content, int length = 300)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return string.Empty;
+        }
+
+        return content.Length <= length ? content : content.Substring(0, length) + "...";
     }
 }
 
