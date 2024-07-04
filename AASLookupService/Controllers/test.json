@@ -1,0 +1,22 @@
+{
+    "idShort": "Murrelektronik_54530",
+    "id": "https://aas.murrelektronik.com/54530/aas/1/0",
+    "assetKind": "Instance",
+    "administration": null,
+    "endpoints": [
+        {
+            "protocolInformation": {
+                "href": "http://aas-environment-v3:8081/shells/aHR0cHM6Ly9hYXMubXVycmVsZWt0cm9uaWsuY29tLzU0NTMwL2Fhcy8xLzA",
+                "endpointProtocol": "HTTP",
+                "subprotocol": "AAS"
+            },
+            "interface": "https://admin-shell.io/aas/API/3/0/AasServiceSpecification/SSP-003"
+        }
+    ],
+    "description": [
+        {
+            "language": "en-US",
+            "text": "Standardized digital representation of Murrelektroniks. It holds digital models of various aspects (submodels) and describes technical functionality exposed by them."
+        }
+    ]
+}

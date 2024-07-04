@@ -1,142 +1,181 @@
+using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net.Http;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
+using System.Text;
 
 [ApiController]
 [Route("[controller]")]
 public class AASSubmodelMatchController : ControllerBase
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<AASSubmodelMatchController> _logger;
+    private readonly HttpClient _httpClient;
 
-    public AASSubmodelMatchController(IHttpClientFactory httpClientFactory, ILogger<AASSubmodelMatchController> logger)
+    public AASSubmodelMatchController(HttpClient httpClient)
     {
-        _httpClientFactory = httpClientFactory;
-        _logger = logger;
+        _httpClient = httpClient;
     }
 
-    [HttpPost("lookup-assets")]
-    public async Task<IActionResult> LookupAssets([FromBody] LookupRequest request)
+    [HttpPost("match")]
+    public async Task<IActionResult> MatchSubmodels(string articleAssetId, List<string> testAdapterAssetIds, List<string> testDeviceAssetIds)
     {
-        if (string.IsNullOrEmpty(request.ArticleAssetId) || request.AssetIds == null || request.SubmodelIds == null)
+        try
         {
-            return BadRequest("Invalid request parameters.");
-        }
+            // Encode the incoming Asset IDs
+            string encodedArticleAssetId = Base64UrlEncode(articleAssetId);
+            var encodedTestAdapterAssetIds = testAdapterAssetIds.ConvertAll(Base64UrlEncode);
+            var encodedTestDeviceAssetIds = testDeviceAssetIds.ConvertAll(Base64UrlEncode);
 
-        var articleAasId = await GetAasIdAsync(request.ArticleAssetId);
-        _logger.LogInformation("Fetched Article AAS ID: {ArticleAasId}", articleAasId);
-        var matchingAssetIds = new List<string>();
+            // Step 1: Article AAS Lookup
+            var articleAas = await GetAasFromAssetId(encodedArticleAssetId);
 
-        foreach (var assetId in request.AssetIds)
-        {
-            var assetAasData = await GetAasDataAsync(assetId, includeSubmodels: true);
-            _logger.LogInformation("Fetched AAS Data for Asset ID: {AssetId}, Data: {AssetAasData}", assetId, assetAasData);
-
-            if (assetAasData != null)
+            // Step 2: Test Adapter Matching
+            var matchingAdapters = new List<string>();
+            foreach (var encodedAdapterAssetId in encodedTestAdapterAssetIds)
             {
-                foreach (var submodel in assetAasData.Submodels)
+                var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
+
+                if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
                 {
-                    if (submodel.ValueKind == JsonValueKind.Object && submodel.TryGetProperty("id", out var submodelId))
+                    matchingAdapters.Add(adapterAas["assetAdministrationShells"][0]["id"].ToString());
+                }
+            }
+
+            // Step 3: Test Device Matching
+            var finalMatches = new List<(string AdapterAasId, string DeviceAasId)>();
+            foreach (var adapterAasId in matchingAdapters)
+            {
+                var adapterAas = await GetAasFromAssetId(Base64UrlEncode(adapterAasId));
+                foreach (var encodedDeviceAssetId in encodedTestDeviceAssetIds)
+                {
+                    var deviceAas = await GetAasFromAssetId(encodedDeviceAssetId);
+
+                    if (IsDeviceCompatibleWithAdapter(adapterAas, deviceAas))
                     {
-                        _logger.LogInformation("Checking Submodel ID: {SubmodelId} for Asset ID: {AssetId}", submodelId.GetString(), assetId);
-                        if (request.SubmodelIds.Contains(submodelId.GetString()))
-                        {
-                            {
-                                _logger.LogInformation("Match found for Asset ID: {AssetId} with Article AAS ID: {ArticleAasId}", assetId, articleAasId);
-                                matchingAssetIds.Add(assetId);
-                                break;
-                            }
-                        }
+                        finalMatches.Add((adapterAasId, deviceAas["assetAdministrationShells"][0]["id"].ToString()));
+                    }
+                }
+            }
+
+            return Ok(finalMatches);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, $"An error occurred: {ex.Message}");
+        }
+    }
+
+    private async Task<JObject> GetAasFromAssetId(string encodedAssetId)
+    {
+        var response = await _httpClient.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={encodedAssetId}&submodels=true");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        return JObject.Parse(content);
+    }
+
+    private bool IsAdapterCompatibleWithArticle(JObject article, JObject adapter)
+    {
+        var articleProperties = GetTechnicalProperties(article);
+        var adapterProperties = GetTechnicalProperties(adapter);
+
+        return articleProperties.Count == adapterProperties.Count &&
+               articleProperties.All(kvp => adapterProperties.TryGetValue(kvp.Key, out var value) && value.Equals(kvp.Value));
+    }
+
+    private Dictionary<string, string> GetTechnicalProperties(JObject aas)
+    {
+        var result = new Dictionary<string, string>();
+
+        var submodels = aas["submodels"] as JArray;
+        var technicalDataSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "TechnicalData");
+
+        if (technicalDataSubmodel != null)
+        {
+            var submodelElements = technicalDataSubmodel["submodelElements"] as JArray;
+            var technicalProperties = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "TechnicalProperties");
+
+            if (technicalProperties != null)
+            {
+                var properties = technicalProperties["value"] as JArray;
+                foreach (var prop in properties ?? Enumerable.Empty<JToken>())
+                {
+                    var idShort = prop["idShort"]?.ToString();
+                    var value = prop["value"]?.ToString();
+
+                    if (idShort == "HousingNumber" || idShort == "SupportedProtocol")
+                    {
+                        result[idShort] = value;
                     }
                 }
             }
         }
 
-        // Log the matchingAssetIds
-        _logger.LogInformation("Response of AASSubmodelMatchController: {MatchingAssetIds}", JsonSerializer.Serialize(matchingAssetIds));
-        
-        return Ok(new { Message = "Matching Asset IDs", matchingAssetIds });
+        return result;
     }
 
-    private async Task<string> GetAasIdAsync(string assetId)
+    private bool IsDeviceCompatibleWithAdapter(JObject adapter, JObject device)
     {
-        var client = _httpClientFactory.CreateClient();
-        var response = await client.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={assetId}");
+        var adapterProperties = GetDeviceCompatibilityProperties(adapter);
+        var deviceProperties = GetDeviceCompatibilityProperties(device);
 
-        var content = await response.Content.ReadAsStringAsync();
-        Console.WriteLine("Response Content: " + content); // Debug log to print the entire response
+        return adapterProperties.Count == deviceProperties.Count &&
+               adapterProperties.All(kvp => deviceProperties.TryGetValue(kvp.Key, out var value) && value.Equals(kvp.Value));
+    }
 
-        try
+    private Dictionary<string, string> GetDeviceCompatibilityProperties(JObject aas)
+    {
+        var result = new Dictionary<string, string>();
+
+        var submodels = aas["submodels"] as JArray;
+
+        // Get ElectricalConnectors version
+        var interfaceConnectorsSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "InterfaceConnectors");
+        if (interfaceConnectorsSubmodel != null)
         {
-            var jsonArray = JsonDocument.Parse(content).RootElement.EnumerateArray();
+            var submodelElements = interfaceConnectorsSubmodel["submodelElements"] as JArray;
+            var electricalConnectors = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "ElectricalConnectors");
 
-            // Assuming the first element in the array contains the AAS data
-            var aasDataWrapper = jsonArray.FirstOrDefault();
-            if (aasDataWrapper.ValueKind == JsonValueKind.Object && aasDataWrapper.TryGetProperty("assetAdministrationShells", out var assetAdminShells))
+            if (electricalConnectors != null)
             {
-                var aasData = assetAdminShells.EnumerateArray().FirstOrDefault();
-                if (aasData.ValueKind == JsonValueKind.Object && aasData.TryGetProperty("id", out var idProperty))
+                var electricalInterfaceVersion = electricalConnectors["value"]?
+                    .FirstOrDefault(v => v["idShort"]?.ToString() == "ElectricalInterfaceVersion");
+
+                if (electricalInterfaceVersion != null)
                 {
-                    return idProperty.GetString();
-                }
-                else
-                {
-                    throw new Exception("AAS id not found in the assetAdministrationShells.");
+                    result["ElectricalConnectors"] = electricalInterfaceVersion["value"]?.ToString();
                 }
             }
-            else
+        }
+
+        // Get HardwareVersion
+        var nameplateSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "Nameplate");
+        if (nameplateSubmodel != null)
+        {
+            var submodelElements = nameplateSubmodel["submodelElements"] as JArray;
+            var hardwareVersion = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "HardwareVersion");
+
+            if (hardwareVersion != null)
             {
-                throw new Exception("AAS assetAdministrationShells not found in the response.");
+                var versionValue = hardwareVersion["value"] as JArray;
+                var englishVersion = versionValue?.FirstOrDefault(v => v["language"]?.ToString() == "en");
+
+                if (englishVersion != null)
+                {
+                    result["HardwareVersion"] = englishVersion["text"]?.ToString();
+                }
             }
         }
-        catch (Exception ex)
-        {
-            throw new Exception("Error parsing AAS response", ex);
-        }
+
+        return result;
     }
 
-    private async Task<JsonObjectWrapper> GetAasDataAsync(string assetId, bool includeSubmodels)
+    private string Base64UrlEncode(string input)
     {
-        var client = _httpClientFactory.CreateClient();
-        var response = await client.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={assetId}&submodels={includeSubmodels}");
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync();
-        var jsonArray = JsonDocument.Parse(content).RootElement.EnumerateArray();
-        
-        // Assuming the first element in the array contains the AAS data
-        var aasData = jsonArray.FirstOrDefault();
-        
-        if (aasData.ValueKind == JsonValueKind.Object)
-        {
-            return JsonSerializer.Deserialize<JsonObjectWrapper>(aasData.GetRawText());
-        }
-        else
-        {
-            throw new Exception("AAS data not found in the response.");
-        }
+        var inputBytes = Encoding.UTF8.GetBytes(input);
+        return Convert.ToBase64String(inputBytes)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
     }
-
-    private string GetSnippet(string content, int length = 300)
-    {
-        if (string.IsNullOrEmpty(content))
-        {
-            return string.Empty;
-        }
-
-        return content.Length <= length ? content : content.Substring(0, length) + "...";
-    }
-}
-
-public class LookupRequest
-{
-    public string ArticleAssetId { get; set; }
-    public List<string> AssetIds { get; set; }
-    public List<string> SubmodelIds { get; set; }
 }

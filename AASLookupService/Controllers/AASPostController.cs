@@ -204,7 +204,7 @@ public class AASPostController : ControllerBase
                 var registryContent = new StringContent(JsonSerializer.Serialize(registryEntry), Encoding.UTF8, "application/json");
                 try
                 {
-                    var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors", registryContent);
+                    var registryResponse = await registryClient.PostAsync($"http://aas-registry-v3:8080/shell-descriptors", registryContent);
                     var registryResponseContent = await registryResponse.Content.ReadAsStringAsync();
                     var registryResponseHeaders = registryResponse.Headers.ToString();
                     Console.WriteLine($"Registry Response: {registryResponse.StatusCode}, {registryResponseContent}");

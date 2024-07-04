@@ -52,7 +52,7 @@ public class AASLookupController : ControllerBase
         {
             var encodedAasId = Base64UrlEncode(aasId);
 
-            var registryResponse = await registryClient.GetAsync($"http://aas-registry-v3:8080/api/v3.0/shell-descriptors/{encodedAasId}");
+            var registryResponse = await registryClient.GetAsync($"http://aas-registry-v3:8080/shell-descriptors/{encodedAasId}");
             registryResponse.EnsureSuccessStatusCode();
             var registryContent = await registryResponse.Content.ReadAsStringAsync();
             var registryResult = JsonDocument.Parse(registryContent);

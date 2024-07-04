@@ -23,7 +23,7 @@ services:
     #ports:
     #  - 4999:4999
   aas-registry-service:
-    image: eclipsebasyx/aas-registry-log-mongodb:latest
+    image: eclipsebasyx/aas-registry-log-mongodb:2.0.0-SNAPSHOT
     container_name:  aas-registry-v3
     environment:
       SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
