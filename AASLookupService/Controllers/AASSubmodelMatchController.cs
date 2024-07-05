@@ -3,143 +3,252 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text;
+using System.Linq;
+using Microsoft.Extensions.Logging;
 
 [ApiController]
 [Route("[controller]")]
 public class AASSubmodelMatchController : ControllerBase
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<AASSubmodelMatchController> _logger;
 
-    public AASSubmodelMatchController(HttpClient httpClient)
+    public AASSubmodelMatchController(HttpClient httpClient, ILogger<AASSubmodelMatchController> logger)
     {
         _httpClient = httpClient;
+        _logger = logger;
+    }
+
+    public class MatchSubmodelsRequest
+    {
+        public string ArticleAssetId { get; set; }
+        public List<string> TestAdapterAssetIds { get; set; }
+        public List<string> TestDeviceAssetIds { get; set; }
     }
 
     [HttpPost("match")]
-    public async Task<IActionResult> MatchSubmodels(string articleAssetId, List<string> testAdapterAssetIds, List<string> testDeviceAssetIds)
+    public async Task<IActionResult> MatchSubmodels([FromBody] MatchSubmodelsRequest request)
     {
+        _logger.LogInformation("Received request: {Request}", JsonSerializer.Serialize(request));
         try
         {
             // Encode the incoming Asset IDs
-            string encodedArticleAssetId = Base64UrlEncode(articleAssetId);
-            var encodedTestAdapterAssetIds = testAdapterAssetIds.ConvertAll(Base64UrlEncode);
-            var encodedTestDeviceAssetIds = testDeviceAssetIds.ConvertAll(Base64UrlEncode);
+            string encodedArticleAssetId = Base64UrlEncode(request.ArticleAssetId);
+            _logger.LogInformation("Encoded Article Asset ID: {EncodedId}", encodedArticleAssetId);
+            var encodedTestAdapterAssetIds = request.TestAdapterAssetIds.ConvertAll(Base64UrlEncode);
+            _logger.LogInformation("Encoded Test Adapter Asset IDs: {EncodedIds}", string.Join(", ", encodedTestAdapterAssetIds));
+            var encodedTestDeviceAssetIds = request.TestDeviceAssetIds.ConvertAll(Base64UrlEncode);
+            _logger.LogInformation("Encoded Test Device Asset IDs: {EncodedIds}", string.Join(", ", encodedTestDeviceAssetIds));
 
             // Step 1: Article AAS Lookup
             var articleAas = await GetAasFromAssetId(encodedArticleAssetId);
+            _logger.LogInformation("Article AAS: {ArticleAas}", GetSnippet(articleAas.ToString()));
 
             // Step 2: Test Adapter Matching
-            var matchingAdapters = new List<string>();
+            var matchingAdapters = new List<(string AdapterId, JsonObject AdapterAas)>();
             foreach (var encodedAdapterAssetId in encodedTestAdapterAssetIds)
             {
                 var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
+                _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
 
                 if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
                 {
-                    matchingAdapters.Add(adapterAas["assetAdministrationShells"][0]["id"].ToString());
+                    var adapterId = adapterAas["assetAdministrationShells"]![0]!["id"]!.ToString();
+                    matchingAdapters.Add((adapterId, adapterAas));
+                    _logger.LogInformation("Matching Adapter found: {AdapterId}", adapterId);
                 }
             }
+            _logger.LogInformation("Total matching adapters: {Count}", matchingAdapters.Count);
 
             // Step 3: Test Device Matching
-            var finalMatches = new List<(string AdapterAasId, string DeviceAasId)>();
-            foreach (var adapterAasId in matchingAdapters)
+            var finalMatches = new List<MatchResult>();
+            foreach (var (adapterAasId, adapterAas) in matchingAdapters)
             {
-                var adapterAas = await GetAasFromAssetId(Base64UrlEncode(adapterAasId));
+                _logger.LogInformation("Processing Adapter: {AdapterId}", adapterAasId);
                 foreach (var encodedDeviceAssetId in encodedTestDeviceAssetIds)
                 {
                     var deviceAas = await GetAasFromAssetId(encodedDeviceAssetId);
+                    _logger.LogInformation("Processing Device: {DeviceAas}", GetSnippet(deviceAas.ToString()));
 
                     if (IsDeviceCompatibleWithAdapter(adapterAas, deviceAas))
                     {
-                        finalMatches.Add((adapterAasId, deviceAas["assetAdministrationShells"][0]["id"].ToString()));
+                        var deviceId = deviceAas["assetAdministrationShells"]![0]!["id"]!.ToString();
+                        var matchResult = new MatchResult(adapterAasId, deviceId);
+                        finalMatches.Add(matchResult);
+                        _logger.LogInformation("Match added to finalMatches: Adapter {AdapterId} - Device {DeviceId}", adapterAasId, deviceId);
+                        _logger.LogInformation("Current finalMatches count: {Count}", finalMatches.Count);
                     }
                 }
             }
 
-            return Ok(finalMatches);
+            _logger.LogInformation("Final Matches before serialization: {Matches}", 
+                string.Join(", ", finalMatches.Select(m => $"({m.AdapterAasId}, {m.DeviceAasId})")));
+            var serializedMatches = JsonSerializer.Serialize(finalMatches);
+            _logger.LogInformation("Serialized Final Matches: {Matches}", serializedMatches);
+            
+            return Ok(new { Matches = finalMatches });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "An error occurred while processing the request");
             return StatusCode(500, $"An error occurred: {ex.Message}");
         }
     }
 
-    private async Task<JObject> GetAasFromAssetId(string encodedAssetId)
+    private async Task<JsonObject> GetAasFromAssetId(string encodedAssetId)
     {
+        _logger.LogInformation("Getting AAS for Asset ID: {AssetId}", encodedAssetId);
         var response = await _httpClient.GetAsync($"http://aas-lookup-service:80/AASLookup/lookup?assetId={encodedAssetId}&submodels=true");
+        
+        _logger.LogInformation("HTTP Response: {StatusCode}, {Headers}", response.StatusCode, response.Headers);
+        
         response.EnsureSuccessStatusCode();
         var content = await response.Content.ReadAsStringAsync();
-        return JObject.Parse(content);
+        _logger.LogInformation("Raw AAS content received: {Content}", GetSnippet(content));
+        
+        // Parse the content as a JsonArray first
+        var jsonArray = JsonNode.Parse(content) as JsonArray;
+        
+        // Check if the array is empty
+        if (jsonArray == null || jsonArray.Count == 0)
+        {
+            _logger.LogWarning("No AAS data found for Asset ID: {AssetId}", encodedAssetId);
+            return new JsonObject();
+        }
+        
+        // Take the first item in the array
+        var firstItem = jsonArray[0] as JsonObject;
+        
+        // If the first item is a JsonObject, return it
+        if (firstItem != null)
+        {
+            return firstItem;
+        }
+        
+        // If it's not a JsonObject, log a warning and return an empty JsonObject
+        _logger.LogWarning("Unexpected AAS data format for Asset ID: {AssetId}. Content: {Content}", encodedAssetId, firstItem?.ToString());
+        return new JsonObject();
     }
 
-    private bool IsAdapterCompatibleWithArticle(JObject article, JObject adapter)
+    private bool IsAdapterCompatibleWithArticle(JsonObject article, JsonObject adapter)
     {
-        var articleProperties = GetTechnicalProperties(article);
-        var adapterProperties = GetTechnicalProperties(adapter);
+        var articleProperties = GetTechnicalProperties(article, isArticle: true);
+        var adapterProperties = GetTechnicalProperties(adapter, isArticle: false);
+        _logger.LogInformation("Article Properties: {ArticleProps}, Adapter Properties: {AdapterProps}", 
+            JsonSerializer.Serialize(articleProperties), 
+            JsonSerializer.Serialize(adapterProperties));
 
-        return articleProperties.Count == adapterProperties.Count &&
-               articleProperties.All(kvp => adapterProperties.TryGetValue(kvp.Key, out var value) && value.Equals(kvp.Value));
+        // Check if both have SupportedProtocol and if they match
+        if (articleProperties.TryGetValue("SupportedProtocol", out var articleProtocol) &&
+            adapterProperties.TryGetValue("SupportedProtocol", out var adapterProtocol))
+        {
+            if (!articleProtocol.Equals(adapterProtocol))
+            {
+                _logger.LogInformation("SupportedProtocol mismatch: Article {ArticleProtocol}, Adapter {AdapterProtocol}", 
+                    articleProtocol, adapterProtocol);
+                return false;
+            }
+        }
+        else
+        {
+            _logger.LogInformation("SupportedProtocol not found in either Article or Adapter");
+            return false;
+        }
+
+        // Check if Article has HousingNumber and Adapter has InsertSurface, and if they match
+        if (articleProperties.TryGetValue("HousingNumber", out var articleHousing) &&
+            adapterProperties.TryGetValue("InsertSurface", out var adapterSurface))
+        {
+            if (!articleHousing.Equals(adapterSurface))
+            {
+                _logger.LogInformation("HousingNumber/InsertSurface mismatch: Article {ArticleHousing}, Adapter {AdapterSurface}", 
+                    articleHousing, adapterSurface);
+                return false;
+            }
+        }
+        else
+        {
+            _logger.LogInformation("HousingNumber or InsertSurface not found");
+            return false;
+        }
+
+        _logger.LogInformation("Article and Adapter are compatible");
+        return true;
     }
 
-    private Dictionary<string, string> GetTechnicalProperties(JObject aas)
+    private Dictionary<string, string> GetTechnicalProperties(JsonObject aas, bool isArticle)
     {
         var result = new Dictionary<string, string>();
 
-        var submodels = aas["submodels"] as JArray;
-        var technicalDataSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "TechnicalData");
+        var submodels = aas["submodels"] as JsonArray;
+        var technicalDataSubmodel = submodels?.FirstOrDefault(sm => sm?["idShort"]?.ToString() == "TechnicalData") as JsonObject;
 
         if (technicalDataSubmodel != null)
         {
-            var submodelElements = technicalDataSubmodel["submodelElements"] as JArray;
-            var technicalProperties = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "TechnicalProperties");
+            var submodelElements = technicalDataSubmodel["submodelElements"] as JsonArray;
+            var technicalProperties = submodelElements?.FirstOrDefault(sme => sme?["idShort"]?.ToString() == "TechnicalProperties") as JsonObject;
 
             if (technicalProperties != null)
             {
-                var properties = technicalProperties["value"] as JArray;
-                foreach (var prop in properties ?? Enumerable.Empty<JToken>())
+                var properties = technicalProperties["value"] as JsonArray;
+                foreach (var prop in properties ?? Enumerable.Empty<JsonNode>())
                 {
-                    var idShort = prop["idShort"]?.ToString();
-                    var value = prop["value"]?.ToString();
+                    var idShort = prop?["idShort"]?.ToString();
+                    var value = prop?["value"]?.ToString();
 
-                    if (idShort == "HousingNumber" || idShort == "SupportedProtocol")
+                    if (isArticle && idShort == "HousingNumber")
                     {
-                        result[idShort] = value;
+                        result["HousingNumber"] = value;
+                    }
+                    else if (!isArticle && idShort == "InsertSurface")
+                    {
+                        result["InsertSurface"] = value;
+                    }
+
+                    if (idShort == "SupportedProtocol")
+                    {
+                        result["SupportedProtocol"] = value;
                     }
                 }
             }
         }
 
+        _logger.LogInformation("Technical Properties: {Properties}", JsonSerializer.Serialize(result));
         return result;
     }
 
-    private bool IsDeviceCompatibleWithAdapter(JObject adapter, JObject device)
+    private bool IsDeviceCompatibleWithAdapter(JsonObject adapter, JsonObject device)
     {
         var adapterProperties = GetDeviceCompatibilityProperties(adapter);
         var deviceProperties = GetDeviceCompatibilityProperties(device);
+        _logger.LogInformation("Adapter Properties: {AdapterProps}, Device Properties: {DeviceProps}", 
+            JsonSerializer.Serialize(adapterProperties), 
+            JsonSerializer.Serialize(deviceProperties));
 
         return adapterProperties.Count == deviceProperties.Count &&
                adapterProperties.All(kvp => deviceProperties.TryGetValue(kvp.Key, out var value) && value.Equals(kvp.Value));
     }
 
-    private Dictionary<string, string> GetDeviceCompatibilityProperties(JObject aas)
+    private Dictionary<string, string> GetDeviceCompatibilityProperties(JsonObject aas)
     {
         var result = new Dictionary<string, string>();
 
-        var submodels = aas["submodels"] as JArray;
+        var submodels = aas["submodels"] as JsonArray;
 
         // Get ElectricalConnectors version
-        var interfaceConnectorsSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "InterfaceConnectors");
+        var interfaceConnectorsSubmodel = submodels?.FirstOrDefault(sm => sm?["idShort"]?.ToString() == "InterfaceConnectors") as JsonObject;
         if (interfaceConnectorsSubmodel != null)
         {
-            var submodelElements = interfaceConnectorsSubmodel["submodelElements"] as JArray;
-            var electricalConnectors = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "ElectricalConnectors");
+            var submodelElements = interfaceConnectorsSubmodel["submodelElements"] as JsonArray;
+            var electricalConnectors = submodelElements?.FirstOrDefault(sme => sme?["idShort"]?.ToString() == "ElectricalConnectors") as JsonObject;
 
             if (electricalConnectors != null)
             {
                 var electricalInterfaceVersion = electricalConnectors["value"]?
-                    .FirstOrDefault(v => v["idShort"]?.ToString() == "ElectricalInterfaceVersion");
+                    .AsArray()?.FirstOrDefault(v => v?["idShort"]?.ToString() == "ElectricalInterfaceVersion");
 
                 if (electricalInterfaceVersion != null)
                 {
@@ -149,16 +258,16 @@ public class AASSubmodelMatchController : ControllerBase
         }
 
         // Get HardwareVersion
-        var nameplateSubmodel = submodels?.FirstOrDefault(sm => sm["idShort"]?.ToString() == "Nameplate");
+        var nameplateSubmodel = submodels?.FirstOrDefault(sm => sm?["idShort"]?.ToString() == "Nameplate") as JsonObject;
         if (nameplateSubmodel != null)
         {
-            var submodelElements = nameplateSubmodel["submodelElements"] as JArray;
-            var hardwareVersion = submodelElements?.FirstOrDefault(sme => sme["idShort"]?.ToString() == "HardwareVersion");
+            var submodelElements = nameplateSubmodel["submodelElements"] as JsonArray;
+            var hardwareVersion = submodelElements?.FirstOrDefault(sme => sme?["idShort"]?.ToString() == "HardwareVersion") as JsonObject;
 
             if (hardwareVersion != null)
             {
-                var versionValue = hardwareVersion["value"] as JArray;
-                var englishVersion = versionValue?.FirstOrDefault(v => v["language"]?.ToString() == "en");
+                var versionValue = hardwareVersion["value"] as JsonArray;
+                var englishVersion = versionValue?.FirstOrDefault(v => v?["language"]?.ToString() == "en");
 
                 if (englishVersion != null)
                 {
@@ -167,6 +276,7 @@ public class AASSubmodelMatchController : ControllerBase
             }
         }
 
+        _logger.LogInformation("Device Compatibility Properties: {Properties}", JsonSerializer.Serialize(result));
         return result;
     }
 
@@ -177,5 +287,27 @@ public class AASSubmodelMatchController : ControllerBase
             .Replace('+', '-')
             .Replace('/', '_')
             .TrimEnd('=');
+    }
+
+    private string GetSnippet(string content, int length = 300)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return string.Empty;
+        }
+
+        return content.Length <= length ? content : content.Substring(0, length) + "...";
+    }
+
+    public class MatchResult
+    {
+        public string AdapterAasId { get; set; }
+        public string DeviceAasId { get; set; }
+
+        public MatchResult(string adapterAasId, string deviceAasId)
+        {
+            AdapterAasId = adapterAasId;
+            DeviceAasId = deviceAasId;
+        }
     }
 }

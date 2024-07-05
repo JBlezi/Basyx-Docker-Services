@@ -105,6 +105,7 @@ public class AASLookupController : ControllerBase
                     var aasDataJson = JsonSerializer.Serialize(aasDataWrapper);
                     _logger.LogInformation("AAS Data Wrapper: {DataSnippet}", GetSnippet(aasDataJson));
                     var aasDataElement = JsonDocument.Parse(aasDataJson).RootElement;
+                    _logger.LogInformation("AAS Data Element: {DataSnippet}", GetSnippet(aasDataElement.GetRawText()));
                     aasDataList.Add(aasDataElement);
                 }
                 catch (Exception ex)
@@ -114,6 +115,7 @@ public class AASLookupController : ControllerBase
             }
         }
 
+        _logger.LogInformation("AAS Data List: {DataSnippet}", GetSnippet(string.Join(", ", aasDataList.Select(a => a.GetRawText()))));
         return Ok(aasDataList);
     }
 

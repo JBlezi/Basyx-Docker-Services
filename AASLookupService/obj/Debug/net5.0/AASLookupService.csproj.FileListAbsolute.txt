@@ -1,0 +1,7 @@
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.csproj.AssemblyReference.cache
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.GeneratedMSBuildEditorConfig.editorconfig
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.AssemblyInfoInputs.cache
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.AssemblyInfo.cs
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.csproj.CoreCompileInputs.cache
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.MvcApplicationPartsAssemblyInfo.cs
+/Users/juliusblezinger/code/Basyx Docker/AASLookupService/obj/Debug/net5.0/AASLookupService.MvcApplicationPartsAssemblyInfo.cache
