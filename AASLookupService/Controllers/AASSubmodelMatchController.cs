@@ -48,48 +48,48 @@ public class AASSubmodelMatchController : ControllerBase
             _logger.LogInformation("Article AAS: {ArticleAas}", GetSnippet(articleAas.ToString()));
 
             // Step 2: Test Adapter Matching
-            var matchingAdapters = new List<(string AdapterId, JsonObject AdapterAas)>();
-            foreach (var encodedAdapterAssetId in encodedTestAdapterAssetIds)
+            var matchingAdapters = new List<(string AdapterAssetId, JsonObject AdapterAas)>();
+            for (int i = 0; i < encodedTestAdapterAssetIds.Count; i++)
             {
+                var encodedAdapterAssetId = encodedTestAdapterAssetIds[i];
                 var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
                 _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
 
                 if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
                 {
-                    var adapterId = adapterAas["assetAdministrationShells"]![0]!["id"]!.ToString();
-                    matchingAdapters.Add((adapterId, adapterAas));
-                    _logger.LogInformation("Matching Adapter found: {AdapterId}", adapterId);
+                    matchingAdapters.Add((request.TestAdapterAssetIds[i], adapterAas));
+                    _logger.LogInformation("Matching Adapter found: {AdapterAssetId}", request.TestAdapterAssetIds[i]);
                 }
             }
             _logger.LogInformation("Total matching adapters: {Count}", matchingAdapters.Count);
 
             // Step 3: Test Device Matching
             var finalMatches = new List<MatchResult>();
-            foreach (var (adapterAasId, adapterAas) in matchingAdapters)
+            foreach (var (adapterAssetId, adapterAas) in matchingAdapters)
             {
-                _logger.LogInformation("Processing Adapter: {AdapterId}", adapterAasId);
-                foreach (var encodedDeviceAssetId in encodedTestDeviceAssetIds)
+                _logger.LogInformation("Processing Adapter: {AdapterAssetId}", adapterAssetId);
+                for (int i = 0; i < encodedTestDeviceAssetIds.Count; i++)
                 {
+                    var encodedDeviceAssetId = encodedTestDeviceAssetIds[i];
                     var deviceAas = await GetAasFromAssetId(encodedDeviceAssetId);
                     _logger.LogInformation("Processing Device: {DeviceAas}", GetSnippet(deviceAas.ToString()));
 
                     if (IsDeviceCompatibleWithAdapter(adapterAas, deviceAas))
                     {
-                        var deviceId = deviceAas["assetAdministrationShells"]![0]!["id"]!.ToString();
-                        var matchResult = new MatchResult(adapterAasId, deviceId);
+                        var matchResult = new MatchResult(adapterAssetId, request.TestDeviceAssetIds[i]);
                         finalMatches.Add(matchResult);
-                        _logger.LogInformation("Match added to finalMatches: Adapter {AdapterId} - Device {DeviceId}", adapterAasId, deviceId);
+                        _logger.LogInformation("Match added to finalMatches: Adapter {AdapterAssetId} - Device {DeviceAssetId}", 
+                            JsonSerializer.Serialize(matchResult.AdapterAssetId), 
+                            JsonSerializer.Serialize(matchResult.DeviceAssetId));
                         _logger.LogInformation("Current finalMatches count: {Count}", finalMatches.Count);
                     }
                 }
             }
 
             _logger.LogInformation("Final Matches before serialization: {Matches}", 
-                string.Join(", ", finalMatches.Select(m => $"({m.AdapterAasId}, {m.DeviceAasId})")));
-            var serializedMatches = JsonSerializer.Serialize(finalMatches);
-            _logger.LogInformation("Serialized Final Matches: {Matches}", serializedMatches);
+                JsonSerializer.Serialize(finalMatches));
             
-            return Ok(new { Matches = finalMatches });
+            return Ok(finalMatches);
         }
         catch (Exception ex)
         {
@@ -301,13 +301,37 @@ public class AASSubmodelMatchController : ControllerBase
 
     public class MatchResult
     {
-        public string AdapterAasId { get; set; }
-        public string DeviceAasId { get; set; }
+        public AssetId AdapterAssetId { get; set; }
+        public AssetId DeviceAssetId { get; set; }
 
-        public MatchResult(string adapterAasId, string deviceAasId)
+        public MatchResult(string adapterAssetId, string deviceAssetId)
         {
-            AdapterAasId = adapterAasId;
-            DeviceAasId = deviceAasId;
+            AdapterAssetId = AssetId.FromJson(adapterAssetId);
+            DeviceAssetId = AssetId.FromJson(deviceAssetId);
+        }
+    }
+
+    public class AssetId
+    {
+        public string Name { get; set; }
+        public string Value { get; set; }
+
+        public static AssetId FromJson(string json)
+        {
+            try
+            {
+                var jsonElement = JsonSerializer.Deserialize<JsonElement>(json);
+                return new AssetId
+                {
+                    Name = jsonElement.GetProperty("name").GetString(),
+                    Value = jsonElement.GetProperty("value").GetString()
+                };
+            }
+            catch
+            {
+                // If parsing fails, return an AssetId with the original string as both name and value
+                return new AssetId { Name = json, Value = json };
+            }
         }
     }
 }
