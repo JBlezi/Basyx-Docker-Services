@@ -8,6 +8,8 @@ using System.Text.Json.Nodes;
 using System.Text;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization; 
+
 
 [ApiController]
 [Route("[controller]")]
@@ -25,77 +27,139 @@ public class AASSubmodelMatchController : ControllerBase
     public class MatchSubmodelsRequest
     {
         public string ArticleAssetId { get; set; }
-        public List<string> TestAdapterAssetIds { get; set; }
-        public List<string> TestDeviceAssetIds { get; set; }
+        public List<string> TestAdapterAssetIds { get; set; } = new List<string>();
+        public List<string> TestDeviceAssetIds { get; set; } = new List<string>();
     }
 
     [HttpPost("match")]
     public async Task<IActionResult> MatchSubmodels([FromBody] MatchSubmodelsRequest request)
     {
         _logger.LogInformation("Received request: {Request}", JsonSerializer.Serialize(request));
+
         try
         {
-            // Encode the incoming Asset IDs
-            string encodedArticleAssetId = Base64UrlEncode(request.ArticleAssetId);
-            _logger.LogInformation("Encoded Article Asset ID: {EncodedId}", encodedArticleAssetId);
-            var encodedTestAdapterAssetIds = request.TestAdapterAssetIds.ConvertAll(Base64UrlEncode);
-            _logger.LogInformation("Encoded Test Adapter Asset IDs: {EncodedIds}", string.Join(", ", encodedTestAdapterAssetIds));
-            var encodedTestDeviceAssetIds = request.TestDeviceAssetIds.ConvertAll(Base64UrlEncode);
-            _logger.LogInformation("Encoded Test Device Asset IDs: {EncodedIds}", string.Join(", ", encodedTestDeviceAssetIds));
+            List<MatchResult> finalMatches = new List<MatchResult>();
 
-            // Step 1: Article AAS Lookup
-            var articleAas = await GetAasFromAssetId(encodedArticleAssetId);
-            _logger.LogInformation("Article AAS: {ArticleAas}", GetSnippet(articleAas.ToString()));
-
-            // Step 2: Test Adapter Matching
-            var matchingAdapters = new List<(string AdapterAssetId, JsonObject AdapterAas)>();
-            for (int i = 0; i < encodedTestAdapterAssetIds.Count; i++)
+            if (!string.IsNullOrEmpty(request.ArticleAssetId))
             {
-                var encodedAdapterAssetId = encodedTestAdapterAssetIds[i];
-                var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
-                _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
+                string encodedArticleAssetId = Base64UrlEncode(request.ArticleAssetId);
+                var articleAas = await GetAasFromAssetId(encodedArticleAssetId);
+                _logger.LogInformation("Article AAS: {ArticleAas}", GetSnippet(articleAas.ToString()));
 
-                if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
+                if (request.TestAdapterAssetIds.Any() && request.TestDeviceAssetIds.Any())
                 {
-                    matchingAdapters.Add((request.TestAdapterAssetIds[i], adapterAas));
-                    _logger.LogInformation("Matching Adapter found: {AdapterAssetId}", request.TestAdapterAssetIds[i]);
+                    finalMatches = await PerformFullLookup(request, articleAas);
+                }
+                else if (request.TestAdapterAssetIds.Any())
+                {
+                    finalMatches = await PerformPartialLookup(request.ArticleAssetId, request.TestAdapterAssetIds, articleAas, IsAdapterCompatibleWithArticle);
+                }
+                else if (request.TestDeviceAssetIds.Any())
+                {
+                    finalMatches = await PerformPartialLookup(request.ArticleAssetId, request.TestDeviceAssetIds, articleAas, (article, device) => IsDeviceCompatibleWithAdapter(device, article));
+                }
+                else
+                {
+                    return BadRequest("Either TestAdapterAssetIds or TestDeviceAssetIds must be provided when ArticleAssetId is given.");
                 }
             }
-            _logger.LogInformation("Total matching adapters: {Count}", matchingAdapters.Count);
-
-            // Step 3: Test Device Matching
-            var finalMatches = new List<MatchResult>();
-            foreach (var (adapterAssetId, adapterAas) in matchingAdapters)
+            else if (request.TestAdapterAssetIds.Any() && request.TestDeviceAssetIds.Any())
             {
-                _logger.LogInformation("Processing Adapter: {AdapterAssetId}", adapterAssetId);
-                for (int i = 0; i < encodedTestDeviceAssetIds.Count; i++)
-                {
-                    var encodedDeviceAssetId = encodedTestDeviceAssetIds[i];
-                    var deviceAas = await GetAasFromAssetId(encodedDeviceAssetId);
-                    _logger.LogInformation("Processing Device: {DeviceAas}", GetSnippet(deviceAas.ToString()));
-
-                    if (IsDeviceCompatibleWithAdapter(adapterAas, deviceAas))
-                    {
-                        var matchResult = new MatchResult(adapterAssetId, request.TestDeviceAssetIds[i]);
-                        finalMatches.Add(matchResult);
-                        _logger.LogInformation("Match added to finalMatches: Adapter {AdapterAssetId} - Device {DeviceAssetId}", 
-                            JsonSerializer.Serialize(matchResult.AdapterAssetId), 
-                            JsonSerializer.Serialize(matchResult.DeviceAssetId));
-                        _logger.LogInformation("Current finalMatches count: {Count}", finalMatches.Count);
-                    }
-                }
+                finalMatches = await PerformAdapterDeviceMatching(request.TestAdapterAssetIds, request.TestDeviceAssetIds);
+            }
+            else
+            {
+                return BadRequest("Either ArticleAssetId or both TestAdapterAssetIds and TestDeviceAssetIds must be provided.");
             }
 
-            _logger.LogInformation("Final Matches before serialization: {Matches}", 
-                JsonSerializer.Serialize(finalMatches));
-            
-            return Ok(finalMatches);
+            var options = new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                WriteIndented = true
+            };
+
+            _logger.LogInformation("Final Matches: {Matches}", JsonSerializer.Serialize(finalMatches, options));
+            return Ok(JsonSerializer.Serialize(finalMatches, options));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An error occurred while processing the request");
             return StatusCode(500, $"An error occurred: {ex.Message}");
         }
+    }
+
+    private async Task<List<MatchResult>> PerformFullLookup(MatchSubmodelsRequest request, JsonObject articleAas)
+    {
+        var encodedTestAdapterAssetIds = request.TestAdapterAssetIds.ConvertAll(Base64UrlEncode);
+        var encodedTestDeviceAssetIds = request.TestDeviceAssetIds.ConvertAll(Base64UrlEncode);
+
+        var matchingAdapters = await GetMatchingItems(request.TestAdapterAssetIds, encodedTestAdapterAssetIds, articleAas, IsAdapterCompatibleWithArticle);
+
+        var finalMatches = new List<MatchResult>();
+        foreach (var (adapterAssetId, adapterAas) in matchingAdapters)
+        {
+            var matchingDevices = await GetMatchingItems(request.TestDeviceAssetIds, encodedTestDeviceAssetIds, adapterAas, IsDeviceCompatibleWithAdapter);
+            foreach (var (deviceAssetId, _) in matchingDevices)
+            {
+                finalMatches.Add(new MatchResult(
+                    articleAssetId: request.ArticleAssetId,
+                    adapterAssetId: adapterAssetId,
+                    deviceAssetId: deviceAssetId
+                ));
+            }
+        }
+
+        return finalMatches;
+    }
+
+    private async Task<List<MatchResult>> PerformPartialLookup(string articleAssetId, List<string> testAssetIds, JsonObject articleAas, Func<JsonObject, JsonObject, bool> compatibilityCheck)
+    {
+        var encodedTestAssetIds = testAssetIds.ConvertAll(Base64UrlEncode);
+        var matchingItems = await GetMatchingItems(testAssetIds, encodedTestAssetIds, articleAas, compatibilityCheck);
+
+        return matchingItems.Select(item => new MatchResult(articleAssetId, item.AssetId)).ToList();
+    }
+
+    private async Task<List<MatchResult>> PerformAdapterDeviceMatching(List<string> adapterAssetIds, List<string> deviceAssetIds)
+    {
+        var encodedAdapterAssetIds = adapterAssetIds.ConvertAll(Base64UrlEncode);
+        var encodedDeviceAssetIds = deviceAssetIds.ConvertAll(Base64UrlEncode);
+
+        var finalMatches = new List<MatchResult>();
+
+        for (int i = 0; i < adapterAssetIds.Count; i++)
+        {
+            var adapterAssetId = adapterAssetIds[i];
+            var encodedAdapterAssetId = encodedAdapterAssetIds[i];
+            var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
+            _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
+
+            var matchingDevices = await GetMatchingItems(deviceAssetIds, encodedDeviceAssetIds, adapterAas, IsDeviceCompatibleWithAdapter);
+            foreach (var (deviceAssetId, _) in matchingDevices)
+            {
+                finalMatches.Add(new MatchResult(adapterAssetId: adapterAssetId, deviceAssetId: deviceAssetId));
+            }
+        }
+
+        return finalMatches;
+    }
+
+    private async Task<List<(string AssetId, JsonObject Aas)>> GetMatchingItems(List<string> assetIds, List<string> encodedAssetIds, JsonObject referenceAas, Func<JsonObject, JsonObject, bool> compatibilityCheck)
+    {
+        var matchingItems = new List<(string AssetId, JsonObject Aas)>();
+        for (int i = 0; i < encodedAssetIds.Count; i++)
+        {
+            var encodedAssetId = encodedAssetIds[i];
+            var itemAas = await GetAasFromAssetId(encodedAssetId);
+            _logger.LogInformation("Item AAS: {ItemAas}", GetSnippet(itemAas.ToString()));
+
+            if (compatibilityCheck(referenceAas, itemAas))
+            {
+                matchingItems.Add((assetIds[i], itemAas));
+                _logger.LogInformation("Matching item found: {AssetId}", assetIds[i]);
+            }
+        }
+        return matchingItems;
     }
 
     private async Task<JsonObject> GetAasFromAssetId(string encodedAssetId)
@@ -301,13 +365,15 @@ public class AASSubmodelMatchController : ControllerBase
 
     public class MatchResult
     {
+        public AssetId ArticleAssetId { get; set; }
         public AssetId AdapterAssetId { get; set; }
         public AssetId DeviceAssetId { get; set; }
 
-        public MatchResult(string adapterAssetId, string deviceAssetId)
+        public MatchResult(string articleAssetId = null, string adapterAssetId = null, string deviceAssetId = null)
         {
-            AdapterAssetId = AssetId.FromJson(adapterAssetId);
-            DeviceAssetId = AssetId.FromJson(deviceAssetId);
+            if (articleAssetId != null) ArticleAssetId = AssetId.FromJson(articleAssetId);
+            if (adapterAssetId != null) AdapterAssetId = AssetId.FromJson(adapterAssetId);
+            if (deviceAssetId != null) DeviceAssetId = AssetId.FromJson(deviceAssetId);
         }
     }
 
