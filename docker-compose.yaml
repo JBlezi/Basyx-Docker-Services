@@ -112,7 +112,7 @@ services:
     restart: always
 
   aas-lookup-service:
-    # image: jbdesign23/eolaasservices:tag
+    # image: jbdesign23/aas-lookup-service:amd64-1.0
     image: aas-lookup-service
     container_name: aas-lookup-service
     pull_policy: never
