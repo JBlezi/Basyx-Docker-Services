@@ -21,6 +21,16 @@ public class AASPostController : ControllerBase
         _httpClientFactory = httpClientFactory;
     }
 
+    /// <summary>
+    /// Uploads a JSON file containing Asset Administration Shell information and creates registry and discovery entries
+    /// </summary>
+    /// <param name="jsonFile">The JSON file to upload</param>
+    /// <param name="register">Whether to enter the AAS in the registry</param>
+    /// <param name="discover">Whether to add the AAS to the discovery</param>
+    /// <returns>A result indicating the success of the upload and optional registration/discovery</returns>
+    /// <response code="200">If the JSON is successfully uploaded and optionally registered/discovered</response>
+    /// <response code="400">If the JSON file is invalid or missing</response>
+    /// <response code="500">If an error occurs during processing</response>
     [HttpPost("uploadJSON")]
     public async Task<IActionResult> UploadJSON(IFormFile jsonFile, bool register = true, bool discover = true)
     {

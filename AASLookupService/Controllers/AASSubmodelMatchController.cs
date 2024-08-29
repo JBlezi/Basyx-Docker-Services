@@ -30,6 +30,57 @@ public class AASSubmodelMatchController : ControllerBase
         public List<string> TestDeviceAssetIds { get; set; } = new List<string>();
     }
 
+    /// <summary>
+    /// Matches submodels based on the provided request
+    /// </summary>
+    /// <param name="request">The request containing asset IDs for matching</param>
+    /// <returns>A result containing matched submodels</returns>
+    /// <response code="200">Returns the match result</response>
+    /// <response code="400">If the request is invalid</response>
+    /// <response code="500">If an error occurs during processing</response>
+    /// /// <remarks>
+    /// Sample requests:
+    ///
+    /// 1. Full request with article, adapters, and devices:
+    /// 
+    ///     POST /AASSubmodelMatch/match
+    ///     {
+    ///         "articleAssetId": "{\"name\": \"MVK_Pro_MPNIO_DIO8IOL8M12L_01\",\"value\": \"AssetMVK_Pro_MPNIO_DIO8IOL8M12L_Value\"}",
+    ///         "testAdapterAssetIds": [
+    ///             "{\"name\": \"PA210\",\"value\": \"AssetPA210_Value\"}",
+    ///             "{\"name\": \"PA220\",\"value\": \"AssetPA220_Value\"}"
+    ///         ],
+    ///         "testDeviceAssetIds": [
+    ///             "{\"name\": \"PG210\",\"value\": \"AssetPG210_Value\"}",
+    ///             "{\"name\": \"PG220\",\"value\": \"AssetPG220_Value\"}"
+    ///         ]
+    ///     }
+    ///
+    /// 2. Partial request with article and adapters:
+    ///
+    ///     POST /AASSubmodelMatch/match
+    ///     {
+    ///         "articleAssetId": "{\"name\": \"MVK_Pro_MPNIO_DIO8IOL8M12L_01\",\"value\": \"AssetMVK_Pro_MPNIO_DIO8IOL8M12L_Value\"}",
+    ///         "testAdapterAssetIds": [
+    ///             "{\"name\": \"PA210\",\"value\": \"AssetPA210_Value\"}",
+    ///             "{\"name\": \"PA220\",\"value\": \"AssetPA220_Value\"}"
+    ///         ]
+    ///     }
+    ///
+    /// 3. Request with only adapters and devices:
+    ///
+    ///     POST /AASSubmodelMatch/match
+    ///     {
+    ///         "testAdapterAssetIds": [
+    ///             "{\"name\": \"PA210\",\"value\": \"AssetPA210_Value\"}",
+    ///             "{\"name\": \"PA220\",\"value\": \"AssetPA220_Value\"}"
+    ///         ],
+    ///         "testDeviceAssetIds": [
+    ///             "{\"name\": \"PG210\",\"value\": \"AssetPG210_Value\"}",
+    ///             "{\"name\": \"PG220\",\"value\": \"AssetPG220_Value\"}"
+    ///         ]
+    ///     }
+    /// </remarks>
     [HttpPost("match")]
     public async Task<IActionResult> MatchSubmodels([FromBody] MatchSubmodelsRequest request)
     {
@@ -75,13 +126,20 @@ public class AASSubmodelMatchController : ControllerBase
             var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
             _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
 
+            var adapterProperties = GetTechnicalProperties(adapterAas, isArticle: false);
+
             var matchingDevices = await GetMatchingDevices(request.TestDeviceAssetIds, encodedTestDeviceAssetIds, adapterAas);
             
             if (matchingDevices.Any())
             {
                 matchResult.AdapterDevicePairings.Add(new AdapterDevicePairing
                 {
-                    TestAdapterAssetId = AssetId.FromJson(adapterAssetId),
+                    TestAdapter = new TestAdapter
+                    {
+                        TestAdapterAssetId = AssetId.FromJson(adapterAssetId),
+                        TestAdapterType = adapterProperties.TryGetValue("AdapterType", out var adapterType) ? adapterType : null,
+                        InsertSurface = adapterProperties.TryGetValue("InsertSurface", out var insertSurface) ? insertSurface : null
+                    },
                     TestDeviceAssetIds = matchingDevices.Select(AssetId.FromJson).ToList()
                 });
             }
@@ -108,12 +166,29 @@ public class AASSubmodelMatchController : ControllerBase
         if (request.TestDeviceAssetIds.Count == 0)
         {
             // Handle partial request (only adapters)
-            var matchingAdapters = await GetMatchingAdapters(request.TestAdapterAssetIds, encodedTestAdapterAssetIds, articleAas);
             var partialMatchResult = new PartialMatchResult
             {
                 Asset = new AssetIdWrapper { ArticleAssetId = AssetId.FromJson(request.ArticleAssetId) },
-                Adapters = matchingAdapters.Select(AssetId.FromJson).ToList()
+                Adapters = new List<TestAdapter>()
             };
+
+            foreach (var (adapterAssetId, encodedAdapterAssetId) in request.TestAdapterAssetIds.Zip(encodedTestAdapterAssetIds, (id, encoded) => (id, encoded)))
+            {
+                var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
+                _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
+
+                var adapterProperties = GetTechnicalProperties(adapterAas, isArticle: false);
+
+                if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
+                {
+                    partialMatchResult.Adapters.Add(new TestAdapter
+                    {
+                        TestAdapterAssetId = AssetId.FromJson(adapterAssetId),
+                        TestAdapterType = adapterProperties.TryGetValue("AdapterType", out var adapterType) ? adapterType : null,
+                        InsertSurface = adapterProperties.TryGetValue("InsertSurface", out var insertSurface) ? insertSurface : null
+                    });
+                }
+            }
 
             var options = new JsonSerializerOptions
             {
@@ -140,15 +215,22 @@ public class AASSubmodelMatchController : ControllerBase
                 var adapterAas = await GetAasFromAssetId(encodedAdapterAssetId);
                 _logger.LogInformation("Adapter AAS: {AdapterAas}", GetSnippet(adapterAas.ToString()));
 
+                var adapterProperties = GetTechnicalProperties(adapterAas, isArticle: false);
+
                 if (IsAdapterCompatibleWithArticle(articleAas, adapterAas))
                 {
                     var matchingDevices = await GetMatchingDevices(request.TestDeviceAssetIds, encodedTestDeviceAssetIds, adapterAas);
-                    
+
                     if (matchingDevices.Any())
                     {
                         matchResult.AdapterDevicePairings.Add(new AdapterDevicePairing
                         {
-                            TestAdapterAssetId = AssetId.FromJson(adapterAssetId),
+                            TestAdapter = new TestAdapter
+                            {
+                                TestAdapterAssetId = AssetId.FromJson(adapterAssetId),
+                                TestAdapterType = adapterProperties.TryGetValue("AdapterType", out var adapterType) ? adapterType : null,
+                                InsertSurface = adapterProperties.TryGetValue("InsertSurface", out var insertSurface) ? insertSurface : null
+                            },
                             TestDeviceAssetIds = matchingDevices.Select(AssetId.FromJson).ToList()
                         });
                     }
@@ -245,9 +327,9 @@ public class AASSubmodelMatchController : ControllerBase
                             result["ListOfHousingNumbers"] = JsonSerializer.Serialize(housingNumbers);
                         }
                     }
-                    else if (!isArticle && idShort == "InsertSurface")
+                    else if (!isArticle && (idShort == "InsertSurface" || idShort == "AdapterType"))
                     {
-                        result["InsertSurface"] = value?.ToString();
+                        result[idShort] = value?.ToString();
                     }
 
                     if (idShort == "SupportedProtocol")
@@ -415,7 +497,7 @@ public class AASSubmodelMatchController : ControllerBase
     public class PartialMatchResult
     {
         public AssetIdWrapper Asset { get; set; }
-        public List<AssetId> Adapters { get; set; }
+        public List<TestAdapter> Adapters { get; set; }
     }
 
     public class AssetIdWrapper
@@ -425,13 +507,23 @@ public class AASSubmodelMatchController : ControllerBase
 
     public class AdapterDevicePairing
     {
-        public AssetId TestAdapterAssetId { get; set; }
+        public TestAdapter TestAdapter { get; set; }
         public List<AssetId> TestDeviceAssetIds { get; set; }
+    }
+
+    public class TestAdapter
+    {
+        public AssetId TestAdapterAssetId { get; set; }
+        public string TestAdapterType { get; set; }
+        public string InsertSurface { get; set; }
     }
 
     public class AssetId
     {
+        [JsonPropertyName("name")]
         public string Name { get; set; }
+
+        [JsonPropertyName("value")]
         public string Value { get; set; }
 
         public static AssetId FromJson(string json)

@@ -22,6 +22,20 @@ public class AASLookupController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>
+    /// Looks up Asset Administration Shell(s) by Specific Asset ID
+    /// </summary>
+    /// <param name="assetId">The specific asset Id as a name/value pair object, base64-encoded</param>
+    /// <param name="submodels">If true, includes submodel data in the response</param>
+    /// <returns>The Administration Shells matching the given Specific Asset ID</returns>
+    /// <response code="200">Returns the matching Asset Administration Shells</response>
+    /// <response code="400">If the spefific asset-id query parameter is missing</response>
+    /// <response code="404">If no matching Asset Administration Shells are found</response>
+    /// <remarks>
+    /// Sample Specific Asset Id:
+    /// 
+    /// {"name": "PG210","value": "AssetPG210_Value"} --> Base64-encoding --> eyJuYW1lIjogIlBHMjEwIiwidmFsdWUiOiAiQXNzZXRQRzIxMF9WYWx1ZSJ9
+    /// </remarks>
     [HttpGet("lookup")]
     public async Task<IActionResult> LookupAASByAssetId([FromQuery] string assetId, [FromQuery] bool submodels = false)
     {
@@ -119,6 +133,12 @@ public class AASLookupController : ControllerBase
         return Ok(aasDataList);
     }
 
+    /// <summary>
+    /// Fetches Asset Administration Shell data from a given URL
+    /// </summary>
+    /// <param name="client">The HttpClient to use for the request</param>
+    /// <param name="url">The URL to fetch the AAS data from</param>
+    /// <returns>The AAS data as a JsonElement</returns>
     private async Task<JsonElement> FetchAASData(HttpClient client, string url)
     {
         try
@@ -135,6 +155,12 @@ public class AASLookupController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Fetches Submodel data from a given URL
+    /// </summary>
+    /// <param name="client">The HttpClient to use for the request</param>
+    /// <param name="url">The URL to fetch the Submodel data from</param>
+    /// <returns>The Submodel data as a JsonElement, or default if not found</returns>
     private async Task<JsonElement> FetchSubmodelData(HttpClient client, string url)
     {
         try
