@@ -1,11 +1,10 @@
 version: "3.7"
 
 services:
-  
   mongodb:
     image: mongo:5.0.10
     volumes:
-    - mongodb-data-version-5.0.10:/data/db
+      - mongodb-data-version-5.0.10:/data/db
     container_name: mongodb-aasreg-smreg-v3
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
@@ -27,6 +26,8 @@ services:
     container_name:  aas-registry-v3
     environment:
       SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
+      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+      BASYX_CORS_ALLOWED_ORIGINS: "*"
     ports:
       - 8050:8080
     depends_on:
@@ -48,6 +49,8 @@ services:
     # pull_policy: never
     environment:
       SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
+      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+      BASYX_CORS_ALLOWED_ORIGINS: "*"
     ports:
       - 8051:8080
     depends_on:
@@ -71,6 +74,12 @@ services:
     # pull_policy: never
     ports:
       - 8082:8081
+    environment:
+      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+      BASYX_CORS_ALLOWED_ORIGINS: "*"
+      BASYX_AASREPOSITORY_FEATURE_REGISTRYINTEGRATION: http://aas-registry-service:8080 # <--- to register the AAS in the AAS registry
+      BASYX_EXTERNALURL: http://localhost:8082 # <--- to create the connection from the registry to the environment
+      BASYX_SUBMODELREPOSITORY_FEATURE_REGISTRYINTEGRATION: http://submodel-registry-service:8080 # <--- to register the submodels in the submodel registry
     depends_on:
       - mongodb
     restart: always
@@ -84,18 +93,42 @@ services:
     #   - ./users:/app/users
     #ports:
     #  - 4999:4999
-  mongo-express:
-    image: mongo-express:1.0.0-alpha.4
-    container_name: mongo-express-v3
-    environment:
-      ME_CONFIG_MONGODB_SERVER: mongodb
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
-      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
-    ports:
-      - "0.0.0.0:8081:8081"
-    depends_on:
-      - mongodb
+  # mongo-express:
+  #   image: mongo-express:1.0.0-alpha.4
+  #   container_name: mongo-express-v3
+  #   environment:
+  #     ME_CONFIG_MONGODB_SERVER: mongodb
+  #     ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+  #     ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+  #     ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
+  #   ports:
+  #     - "0.0.0.0:8081:8081"
+  #   depends_on:
+  #     - mongodb
+
+  aas-web-ui:
+      image: eclipsebasyx/aas-gui:v2-241006
+      container_name: aas-web-ui
+      ports:
+          - "3000:3000"
+      environment:
+          AAS_REGISTRY_PATH: "http://localhost:8050"
+          SUBMODEL_REGISTRY_PATH: "http://localhost:8051"
+          AAS_DISCOVERY_PATH: "http://localhost:8083"
+          AAS_REPO_PATH: "http://localhost:8082/shells"
+          SUBMODEL_REPO_PATH: "http://localhost:8082/submodels"
+          CD_REPO_PATH: "http://localhost:8082/concept-descriptions"
+          # DASHBOARD_SERVICE_PATH: "<dashboard_service_path>" (optional; Time Series Data)
+          # PRIMARY_COLOR: "<primary_color>" (optional; Corporate Design)
+          # LOGO_PATH: "<logo_path_in_container>" (optional; Corporate Design)
+          # BASE_PATH: "<base_path>" (optional)
+          # INFLUXDB_TOKEN: "<influxdb_token>" (optional; Time Series Data)
+          # KEYCLOAK_URL: "<keycloak_url>" (optional; RBAC feature)
+          # KEYCLOAK_REALM: "<keycloak_realm>" (optional; RBAC feature)
+          # KEYCLOAK_CLIENT_ID: "<keycloak_client_id>" (optional; RBAC feature)
+      depends_on:
+        - aas-environment-service
+
 
   aas-discovery-service:
     image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
@@ -104,6 +137,9 @@ services:
       - ./application.properties:/application/application.properties
     ports:
       - 8083:8081
+    environment:
+      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+      BASYX_CORS_ALLOWED_ORIGINS: "*"
     depends_on:
       - mongodb
       - aas-environment-service
@@ -117,7 +153,7 @@ services:
     container_name: aas-lookup-service
     pull_policy: never
     ports:
-      - 8084:80
+      - 8085:80
     volumes:
       - /Users/juliusblezinger/Documents/Verwaltungsschalen:/app/Verwaltungsschalen
     depends_on:
