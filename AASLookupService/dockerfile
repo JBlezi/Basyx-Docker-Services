@@ -1,10 +1,10 @@
 # Use the official ASP.NET Core runtime as a parent image
-FROM mcr.microsoft.com/dotnet/aspnet:5.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:6.0 AS base
 WORKDIR /app
 EXPOSE 80
 
 # Use the SDK image to build the app
-FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:6.0@sha256:ba7877fb3a171ad4326caf97d8b56304fe73e6e05da0992775804805f6f75451 AS build
 WORKDIR /src
 COPY ["AASLookupService.csproj", "."]
 RUN dotnet restore "./AASLookupService.csproj"
@@ -19,11 +19,6 @@ RUN dotnet publish "AASLookupService.csproj" -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+COPY --from=publish /app/publish/AASLookupService.xml .
 
-# Add the wait-for.sh script
-# COPY wait-for.sh /usr/local/bin/wait-for.sh
-# RUN chmod +x /usr/local/bin/wait-for.sh
-
-# Use wait-for.sh in entrypoint
-# ENTRYPOINT ["/usr/local/bin/wait-for.sh", "aas-environment-log-mongodb", "8081", "--", "dotnet", "AASLookupService.dll"]
 ENTRYPOINT ["dotnet", "AASLookupService.dll"]

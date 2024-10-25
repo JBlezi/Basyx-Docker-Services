@@ -1,0 +1,34 @@
+{
+    "Asset": {
+      "ArticleAssetId": {
+        "Name": "MVK_Pro_MPNIO_DIO8IOL8M12L_01",
+        "Value": "AssetMVK_Pro_MPNIO_DIO8IOL8M12L_Value"
+      }
+    },
+    "AdapterDevicePairings": [
+      {
+        "TestAdapterAssetId": {
+          "Name": "PA210",
+          "Value": "AssetPA210_Value"
+        },
+        "TestDeviceAssetIds": [
+          {
+            "Name": "PG210",
+            "Value": "AssetPG210_Value"
+          }
+        ]
+      },
+      {
+        "TestAdapterAssetId": {
+          "Name": "PA220",
+          "Value": "AssetPA220_Value"
+        },
+        "TestDeviceAssetIds": [
+          {
+            "Name": "PG210",
+            "Value": "AssetPG210_Value"
+          }
+        ]
+      }
+    ]
+  }

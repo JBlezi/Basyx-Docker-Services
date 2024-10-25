@@ -1,0 +1,67 @@
+[
+{
+  "Asset": {
+    "ArticleAssetId": {
+      "name": "MVK_Pro_MPNIO_DIO8IOL8M12L_01",
+      "value": "AssetMVK_Pro_MPNIO_DIO8IOL8M12L_Value"
+    }
+  },
+  "AdapterDevicePairings": [
+        {
+            "testAdapter":{
+                "TestAdapterAssetId": {
+                    "name": "PA210",
+                    "value": "AssetPA210_Value"
+                },
+                "testAdapterType": "Bus",
+                "InsertSurface":"1"
+            },
+            "TestDeviceAssetIds": [
+                {
+                "name": "PG210",
+                "value": "AssetPG210_Value"
+                }
+            ]
+        },
+        {
+        "TestAdapterAssetId": {
+            "name": "PA220",
+            "value": "AssetPA220_Value"
+        },
+        "TestDeviceAssetIds": [
+                {
+                "name": "PG210",
+                "value": "AssetPG210_Value"
+                }
+            ]
+        }
+    ]
+},
+
+{
+    "Asset": {
+      "ArticleAssetId": {
+        "name": "MVK_Pro_MPNIO_DIO8IOL8M12L_01",
+        "value": "AssetMVK_Pro_MPNIO_DIO8IOL8M12L_Value"
+      }
+    },
+    "Adapters": [
+        {
+            "TestAdapterAssetId": {
+                "name": "PA210",
+                "value": "AssetPA210_Value"
+            },
+            "testAdapterType": "I/O",
+            "InsertSurface":"1"
+        },
+        {
+            "TestAdapterAssetId": {
+              "name": "PA220",
+              "value": "AssetPA220_Value"
+            },
+            "TestAdapterType": "BUS",
+            "InsertSurface": "1"
+        }
+    ]
+}
+]

@@ -1,0 +1,56 @@
+[
+    {
+        "modelType": "AssetAdministrationShell",
+        "assetInformation": {
+            "assetKind": "Instance",
+            "defaultThumbnail": {
+                "contentType": null,
+                "path": "/IMG851265.png"
+            },
+            "globalAssetId": "https://aas.murrelektronik.com/54530"
+        },
+        "submodels": [
+            {
+                "keys": [
+                    {
+                        "type": "Submodel",
+                        "value": "https://aas.murrelektronik.com/54530/sm/1/0/de02143657/nameplate"
+                    }
+                ],
+                "type": "ModelReference"
+            },
+            {
+                "keys": [
+                    {
+                        "type": "Submodel",
+                        "value": "https://aas.murrelektronik.com/54530/sm/1/0/de02143657/handoverdocumentation"
+                    }
+                ],
+                "type": "ModelReference"
+            },
+            {
+                "keys": [
+                    {
+                        "type": "Submodel",
+                        "value": "https://aas.murrelektronik.com/54530/sm/1/0/de02143657/technicaldata"
+                    }
+                ],
+                "type": "ModelReference"
+            },
+            {
+                "keys": [
+                    {
+                        "type": "Submodel",
+                        "value": "https://example.com/ids/sm/1581_0120_2022_6546"
+                    }
+                ],
+                "type": "ModelReference"
+            }
+        ],
+        "administration": null,
+        "id": "https://aas.murrelektronik.com/54530/aas/1/0",
+        "description": null,
+        "displayName": null,
+        "idShort": "Murrelektronik_54530"
+    }
+]
