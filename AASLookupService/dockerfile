@@ -4,7 +4,7 @@ WORKDIR /app
 EXPOSE 80
 
 # Use the SDK image to build the app
-FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:6.0@sha256:ba7877fb3a171ad4326caf97d8b56304fe73e6e05da0992775804805f6f75451 AS build
 WORKDIR /src
 COPY ["AASLookupService.csproj", "."]
 RUN dotnet restore "./AASLookupService.csproj"

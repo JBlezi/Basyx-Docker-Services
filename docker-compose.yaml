@@ -149,7 +149,7 @@ services:
 
   aas-lookup-service:
     # image: jbdesign23/aas-lookup-service:amd64-1.0
-    image: aas-lookup-service
+    image: aas-lookup-service:23-10-2024
     container_name: aas-lookup-service
     pull_policy: never
     ports:
