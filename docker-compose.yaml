@@ -9,18 +9,27 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGODB_EXTRA_FLAGS: --wiredTigerCacheSizeGB=2
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     ports:
       - 27017:27017
-    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
-    #platform: linux/amd64
-    #volumes:
-    #  - ./registry-config/context.properties:/usr/share/config/context.properties
-    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
-    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
-    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
-    #   - ./users:/app/users
-    #ports:
-    #  - 4999:4999
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1g"
+        max-file: "3"
+
   aas-registry-service:
     image: eclipsebasyx/aas-registry-log-mongodb:2.0.0-SNAPSHOT
     container_name:  aas-registry-v3
@@ -33,16 +42,7 @@ services:
     depends_on:
       - mongodb
     restart: always
-    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
-    #platform: linux/amd64
-    #volumes:
-    #  - ./registry-config/context.properties:/usr/share/config/context.properties
-    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
-    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
-    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
-    #   - ./users:/app/users
-    #ports:
-    #  - 4999:4999
+
   submodel-registry-service:
     image: eclipsebasyx/submodel-registry-log-mongodb:2.0.0-SNAPSHOT
     container_name:  submodel-registry-v3
@@ -56,16 +56,7 @@ services:
     depends_on:
       - mongodb
     restart: always
-    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
-    #platform: linux/amd64
-    #volumes:
-    #  - ./registry-config/context.properties:/usr/share/config/context.properties
-    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
-    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
-    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
-    #   - ./users:/app/users
-    #ports:
-    #  - 4999:4999
+
   aas-environment-service:
     image: eclipsebasyx/aas-environment:2.0.0-SNAPSHOT
     volumes:
@@ -83,31 +74,9 @@ services:
     depends_on:
       - mongodb
     restart: always
-    #image: cr.siemens.com/aas/basyx-registry-server-java:1.2.0
-    #platform: linux/amd64
-    #volumes:
-    #  - ./registry-config/context.properties:/usr/share/config/context.properties
-    #  - ./registry-config/registry.properties:/usr/share/config/registry.properties
-    #  - ./registry-config/mqtt.properties:/usr/share/config/mqtt.properties
-    #   - ./common-config/FileBasedUserDBSettings.xml:/app/config/FileBasedUserDBSettings.xml
-    #   - ./users:/app/users
-    #ports:
-    #  - 4999:4999
-  # mongo-express:
-  #   image: mongo-express:1.0.0-alpha.4
-  #   container_name: mongo-express-v3
-  #   environment:
-  #     ME_CONFIG_MONGODB_SERVER: mongodb
-  #     ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-  #     ME_CONFIG_MONGODB_ADMINPASSWORD: admin
-  #     ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
-  #   ports:
-  #     - "0.0.0.0:8081:8081"
-  #   depends_on:
-  #     - mongodb
 
   aas-web-ui:
-      image: eclipsebasyx/aas-gui:v2-241006
+      image: eclipsebasyx/aas-gui:v2-241114
       container_name: aas-web-ui
       ports:
           - "3000:3000"
@@ -119,13 +88,14 @@ services:
           SUBMODEL_REPO_PATH: "http://localhost:8082/submodels"
           CD_REPO_PATH: "http://localhost:8082/concept-descriptions"
           # DASHBOARD_SERVICE_PATH: "<dashboard_service_path>" (optional; Time Series Data)
-          # PRIMARY_COLOR: "<primary_color>" (optional; Corporate Design)
-          # LOGO_PATH: "<logo_path_in_container>" (optional; Corporate Design)
-          # BASE_PATH: "<base_path>" (optional)
+          PRIMARY_COLOR: "#3DB60F"
+          LOGO_PATH: "Logo/murrelektronik_logo-green.svg"    # BASE_PATH: "<base_path>" (optional)
           # INFLUXDB_TOKEN: "<influxdb_token>" (optional; Time Series Data)
           # KEYCLOAK_URL: "<keycloak_url>" (optional; RBAC feature)
           # KEYCLOAK_REALM: "<keycloak_realm>" (optional; RBAC feature)
           # KEYCLOAK_CLIENT_ID: "<keycloak_client_id>" (optional; RBAC feature)
+      volumes:
+       - /Users/juliusblezinger/Documents/Logo:/usr/src/app/dist/Logo
       depends_on:
         - aas-environment-service
 
@@ -148,14 +118,14 @@ services:
     restart: always
 
   aas-lookup-service:
-    # image: jbdesign23/aas-lookup-service:amd64-1.0
-    image: aas-lookup-service:23-10-2024
+    image: jbdesign23/aas-lookup-service:latest
+    # image: aas-lookup-service:23-10-2024
     container_name: aas-lookup-service
-    pull_policy: never
+    # pull_policy: never
     ports:
       - 8085:80
-    volumes:
-      - /Users/juliusblezinger/Documents/Verwaltungsschalen:/app/Verwaltungsschalen
+    # volumes:
+    #   - /Users/juliusblezinger/Documents/Verwaltungsschalen:/app/Verwaltungsschalen
     depends_on:
       - aas-discovery-service
       - aas-environment-service
