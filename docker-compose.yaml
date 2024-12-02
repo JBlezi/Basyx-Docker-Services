@@ -41,6 +41,7 @@ services:
       - 8050:8080
     depends_on:
       - mongodb
+      - keycloak
     restart: always
 
   submodel-registry-service:
@@ -55,12 +56,11 @@ services:
       - 8051:8080
     depends_on:
       - mongodb
+      - keycloak
     restart: always
 
   aas-environment-service:
     image: eclipsebasyx/aas-environment:2.0.0-SNAPSHOT
-    volumes:
-    - ./application.properties:/application/application.properties
     container_name:  aas-environment-v3
     # pull_policy: never
     ports:
@@ -68,11 +68,16 @@ services:
     environment:
       BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
       BASYX_CORS_ALLOWED_ORIGINS: "*"
+      # SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://keycloak:8080/realms/basyx
       BASYX_AASREPOSITORY_FEATURE_REGISTRYINTEGRATION: http://aas-registry-service:8080 # <--- to register the AAS in the AAS registry
       BASYX_EXTERNALURL: http://localhost:8082 # <--- to create the connection from the registry to the environment
       BASYX_SUBMODELREPOSITORY_FEATURE_REGISTRYINTEGRATION: http://submodel-registry-service:8080 # <--- to register the submodels in the submodel registry
+    volumes:
+      - ./application.properties:/application/application.properties
+      - ./config/rbac_rules.json:/application/rbac_rules.json
     depends_on:
       - mongodb
+      - keycloak
     restart: always
 
   aas-web-ui:
@@ -98,24 +103,25 @@ services:
        - /Users/juliusblezinger/Documents/Logo:/usr/src/app/dist/Logo
       depends_on:
         - aas-environment-service
+        - keycloak
 
-
-  aas-discovery-service:
-    image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
-    container_name: aas-discovery-service
-    volumes:
-      - ./application.properties:/application/application.properties
-    ports:
-      - 8083:8081
-    environment:
-      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
-      BASYX_CORS_ALLOWED_ORIGINS: "*"
-    depends_on:
-      - mongodb
-      - aas-environment-service
-      - aas-registry-service
-      - submodel-registry-service
-    restart: always
+  # aas-discovery-service:
+  #   image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
+  #   container_name: aas-discovery-service
+  #   volumes:
+  #     - ./application.properties:/application/application.properties
+  #   ports:
+  #     - 8083:8081
+  #   environment:
+  #     BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+  #     BASYX_CORS_ALLOWED_ORIGINS: "*"
+  #   depends_on:
+  #     - mongodb
+  #     - aas-environment-service
+  #     - aas-registry-service
+  #     - submodel-registry-service
+  #     - keycloak
+  #   restart: always
 
   aas-lookup-service:
     image: jbdesign23/aas-lookup-service:latest
@@ -127,12 +133,26 @@ services:
     # volumes:
     #   - /Users/juliusblezinger/Documents/Verwaltungsschalen:/app/Verwaltungsschalen
     depends_on:
-      - aas-discovery-service
+      # - aas-discovery-service
       - aas-environment-service
       - aas-registry-service
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - keycloak_data:/opt/keycloak/data 
+    ports:
+      - "8080:8080"
+    command:
+      - start-dev
+
 volumes:
-   mongodb-data-version-5.0.10:
-      driver: local
+  mongodb-data-version-5.0.10:
+    driver: local
+  keycloak_data:
+    driver: local
