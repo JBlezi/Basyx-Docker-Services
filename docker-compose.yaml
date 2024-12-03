@@ -96,9 +96,9 @@ services:
           PRIMARY_COLOR: "#3DB60F"
           LOGO_PATH: "Logo/murrelektronik_logo-green.svg"    # BASE_PATH: "<base_path>" (optional)
           # INFLUXDB_TOKEN: "<influxdb_token>" (optional; Time Series Data)
-          # KEYCLOAK_URL: "<keycloak_url>" (optional; RBAC feature)
-          # KEYCLOAK_REALM: "<keycloak_realm>" (optional; RBAC feature)
-          # KEYCLOAK_CLIENT_ID: "<keycloak_client_id>" (optional; RBAC feature)
+          KEYCLOAK_URL: "http://localhost:8080"  # Browser-accessible URL
+          KEYCLOAK_REALM: "basyx"
+          KEYCLOAK_CLIENT_ID: "aas-web-ui"  # New client ID for the web UI
       volumes:
        - /Users/juliusblezinger/Documents/Logo:/usr/src/app/dist/Logo
       depends_on:
