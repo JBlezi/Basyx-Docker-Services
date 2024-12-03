@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AASLookupService")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c42235119e618284d683dfe9be9710624eef0b8e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+372e3bd605a9529097bcfbdf8e17472250b0dd00")]
 [assembly: System.Reflection.AssemblyProductAttribute("AASLookupService")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AASLookupService")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -74,7 +74,7 @@ services:
       BASYX_SUBMODELREPOSITORY_FEATURE_REGISTRYINTEGRATION: http://submodel-registry-service:8080 # <--- to register the submodels in the submodel registry
     volumes:
       - ./application.properties:/application/application.properties
-      - ./config/rbac_rules.json:/application/rbac_rules.json
+      - ./config/rbac_rules_environment.json:/application/rbac_rules.json
     depends_on:
       - mongodb
       - keycloak
@@ -96,7 +96,7 @@ services:
           PRIMARY_COLOR: "#3DB60F"
           LOGO_PATH: "Logo/murrelektronik_logo-green.svg"    # BASE_PATH: "<base_path>" (optional)
           # INFLUXDB_TOKEN: "<influxdb_token>" (optional; Time Series Data)
-          KEYCLOAK_URL: "http://localhost:8080"  # Browser-accessible URL
+          KEYCLOAK_URL: "http://keycloak:8080"  # Browser-accessible URL
           KEYCLOAK_REALM: "basyx"
           KEYCLOAK_CLIENT_ID: "aas-web-ui"  # New client ID for the web UI
       volumes:
@@ -105,23 +105,24 @@ services:
         - aas-environment-service
         - keycloak
 
-  # aas-discovery-service:
-  #   image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
-  #   container_name: aas-discovery-service
-  #   volumes:
-  #     - ./application.properties:/application/application.properties
-  #   ports:
-  #     - 8083:8081
-  #   environment:
-  #     BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
-  #     BASYX_CORS_ALLOWED_ORIGINS: "*"
-  #   depends_on:
-  #     - mongodb
-  #     - aas-environment-service
-  #     - aas-registry-service
-  #     - submodel-registry-service
-  #     - keycloak
-  #   restart: always
+  aas-discovery-service:
+    image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
+    container_name: aas-discovery-service
+    volumes:
+      - ./application.properties:/application/application.properties
+      - ./config/rbac_rules_discovery.json:/application/rbac_rules.json
+    ports:
+      - 8083:8081
+    environment:
+      BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
+      BASYX_CORS_ALLOWED_ORIGINS: "*"
+    depends_on:
+      - mongodb
+      - aas-environment-service
+      - aas-registry-service
+      - submodel-registry-service
+      - keycloak
+    restart: always
 
   aas-lookup-service:
     image: jbdesign23/aas-lookup-service:latest
