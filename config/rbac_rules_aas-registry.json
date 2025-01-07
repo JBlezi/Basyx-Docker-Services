@@ -1,0 +1,18 @@
+[
+  {
+    "role": "admin",
+    "action": ["CREATE", "READ", "UPDATE", "DELETE"],
+    "targetInformation": {
+      "@type": "aas-registry",
+      "aasIds": "*"
+    }
+  },
+  {
+    "role": "test",
+    "action": "READ",
+    "targetInformation": {
+      "@type": "aas-registry",
+      "aasIds": ["https://aas.murrelektronik.com/55510/aas/1/0"]
+    }
+  }
+]

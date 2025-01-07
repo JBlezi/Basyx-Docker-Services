@@ -37,6 +37,9 @@ services:
       SPRING_DATA_MONGODB_URI: mongodb://admin:admin@mongodb:27017
       BASYX_CORS_ALLOWED_METHODS: GET,POST,PATCH,DELETE,PUT,OPTIONS,HEAD
       BASYX_CORS_ALLOWED_ORIGINS: "*"
+    volumes:
+      - ./application-registry.properties:/application/application.properties
+      - ./config/rbac_rules_aas-registry.json:/application/rbac_rules.json
     ports:
       - 8050:8080
     depends_on:
@@ -109,7 +112,7 @@ services:
     image: eclipsebasyx/aas-discovery:2.0.0-SNAPSHOT
     container_name: aas-discovery-service
     volumes:
-      - ./application.properties:/application/application.properties
+      - ./application-discovery.properties:/application/application.properties
       - ./config/rbac_rules_discovery.json:/application/rbac_rules.json
     ports:
       - 8083:8081

@@ -42,5 +42,40 @@
       "aasIds": "*",
       "submodelIds": "*"
     }
+  },
+  {
+    "role": "test",
+    "action": ["CREATE", "READ", "UPDATE", "DELETE"],
+    "targetInformation": {
+      "@type": "aas-environment",
+      "aasIds": ["https://aas.murrelektronik.com/55510/aas/1/0"],
+      "submodelIds": ["https://aas.murrelektronik.com/55510/sm/1/0/TechnicalData", "https://aas.murrelektronik.com/55510/sm/1/0/Nameplate", "https://aas.murrelektronik.com/55510/sm/1/0/HandoverDocumentation"]
+    }
+  },
+  {
+    "role": "test",
+    "action": ["CREATE", "READ", "UPDATE", "DELETE"],
+    "targetInformation": {
+      "@type": "aas",
+      "aasIds": ["https://aas.murrelektronik.com/55510/aas/1/0"],
+      "submodelIds": ["https://aas.murrelektronik.com/55510/sm/1/0/TechnicalData", "https://aas.murrelektronik.com/55510/sm/1/0/Nameplate", "https://aas.murrelektronik.com/55510/sm/1/0/HandoverDocumentation"]
+    }
+  },
+  {
+    "role": "test",
+    "action": ["CREATE", "READ", "UPDATE", "DELETE"],
+    "targetInformation": {
+      "@type": "submodel",
+      "submodelIds": ["https://aas.murrelektronik.com/55510/sm/1/0/TechnicalData", "https://aas.murrelektronik.com/55510/sm/1/0/Nameplate", "https://aas.murrelektronik.com/55510/sm/1/0/HandoverDocumentation"],
+      "submodelElementIdShortPaths": "*"
+    }
+  },
+  {
+    "role": "test",
+    "action": ["CREATE", "READ", "UPDATE", "DELETE"],
+    "targetInformation": {
+      "@type": "concept-description",
+      "conceptDescriptionIds": "*"
+    }
   }
 ]

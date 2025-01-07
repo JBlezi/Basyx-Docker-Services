@@ -4,8 +4,27 @@
     "action": ["CREATE", "READ", "UPDATE", "DELETE"],
     "targetInformation": {
       "@type": "aas-discovery-service",
-      "aasIds": "*",
-      "assetIds": []
+      "aasIds": null,
+      "assetIds": [
+        {
+          "name": "*",
+          "value": "*"
+        }
+      ]
+    }
+  },
+  {
+    "role": "test",
+    "action": "READ",
+    "targetInformation": {
+      "@type": "aas-discovery-service",
+      "aasIds": null,
+      "assetIds": [
+        {
+          "name": "https://aas.murrelektronik.com/55510/aas/1/0",
+          "value": "Asset_https://aas.murrelektronik.com/55510/aas/1/0_Value"
+        }
+      ]
     }
   }
 ]
